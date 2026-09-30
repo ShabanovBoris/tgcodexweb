@@ -1,0 +1,32 @@
+{
+  "name": "tgcodexweb",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.0",
+  "engines": {
+    "bun": "1.4.0"
+  },
+  "scripts": {
+    "toolchain:check": "bun run scripts/check-toolchain.ts",
+    "typecheck": "bun x --no-install --bun tsc --noEmit",
+    "lint": "bun x --no-install --bun biome lint .",
+    "format:check": "bun x --no-install --bun biome format .",
+    "format": "bun x --no-install --bun biome format --write .",
+    "test:unit": "bun test ./tests/unit",
+    "test:persistence": "bun test ./tests/persistence",
+    "test": "bun test ./tests",
+    "config:check": "bun run src/cli/index.ts config:check",
+    "db:migrate": "bun run src/cli/index.ts db:migrate",
+    "start": "bun run src/cli/index.ts start",
+    "verify": "bun run scripts/verify.ts"
+  },
+  "dependencies": {
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14",
+    "@types/bun": "1.4.0",
+    "typescript": "5.9.3"
+  }
+}
