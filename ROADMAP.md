@@ -88,6 +88,11 @@ cannot reconstruct a queued prompt. Add the next forward migration or an explici
 payload store; this data is operational input, not a second canonical conversation history.
 R1 does not implement this prerequisite or queue execution.
 
+Approved retention decision (2026-10-01): preserve accepted input in non-terminal states
+without expiry; delete text and working attachment references atomically on every terminal
+outcome, including UNKNOWN. Lifecycle, dedup and historical request/mapping references remain.
+R2 stores this input with a durable acceptance sequence via forward migration `0003`.
+
 ## Goal
 
 Make duplicate input and same-conversation concurrency safe before any live provider work.

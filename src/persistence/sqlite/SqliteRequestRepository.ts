@@ -44,7 +44,7 @@ function requestFromRow(row: RequestRow): Request {
   });
 }
 
-// Храним lifecycle evidence, не conversational history; queue/recovery orchestration принадлежит будущим фазам.
+// Храним lifecycle evidence; R2 operational input удаляется при settlement, remote history остаётся у provider.
 export class SqliteRequestRepository implements RequestRepository {
   constructor(private readonly database: Database) {}
 
@@ -145,6 +145,16 @@ export class SqliteRequestRepository implements RequestRepository {
               `UPDATE requests SET ${changed.map(([, column]) => `${column}=?`).join(",")} WHERE id=?`,
             )
             .run(...changed.map(([key]) => next[key] ?? null), id);
+          // Retention A атомарен с terminal state. Legacy R1 refs без evidence R2 ownership сохраняются.
+          if (terminalStates.includes(next.state)) {
+            // ❌ Удален код с единственным evidence ownership: для cleanup достаточно surviving input или acceptance record.
+            this.database
+              .query(`DELETE FROM attachments WHERE request_id=?
+              AND (EXISTS (SELECT 1 FROM request_acceptances WHERE request_id=?)
+                OR EXISTS (SELECT 1 FROM request_inputs WHERE request_id=?))`)
+              .run(id, id, id);
+            this.database.query("DELETE FROM request_inputs WHERE request_id=?").run(id);
+          }
           return next;
         })
         .immediate(),

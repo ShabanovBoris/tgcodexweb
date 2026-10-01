@@ -342,7 +342,9 @@ After a crash, if a request had potentially crossed the submission boundary but 
 Keyed FIFO queue by canonical provider conversation identity within the single MVP
 provider/profile. Local mapping IDs and aliases are not serialization keys: two
 mappings may reference one remote conversation (AC-E05). R1 exposes the exact opaque
-`providerConversationId` as that key; queue execution belongs to R2.
+`providerConversationId` as that key. R2's `RequestQueue` executes accepted work through
+an injected callback; the callback spans the full mutation and persists its final
+lifecycle evidence before resolving. The actual provider contract belongs to R3.
 
 ```text
 conv-A: req-1 RUNNING -> req-2 QUEUED -> req-3 QUEUED
@@ -378,6 +380,17 @@ type ProviderCapabilities = {
 ```
 
 The scheduler respects these capabilities.
+
+R2 receives a positive `maxConcurrentConversations` limit explicitly; 1 serializes
+all keys, larger limits permit independent keys to run concurrently. R3 will derive
+that limit from provider capabilities. There is one queue runtime for the MVP database;
+multi-process scheduling/notifications are not implemented.
+
+Pending capacity counts `created`/`queued` requests across all mappings for the exact
+provider ID, including blocked work. Active processing does not consume a pending slot.
+Admission checks duplicates before capacity. `QUEUE_FULL` does not create a request,
+payload or dedup marker. Shutdown closes admission and dispatch, waits for active
+callbacks, and preserves queued input for the next runtime; it does not cancel remote work.
 
 ---
 
@@ -461,6 +474,45 @@ processed_at
 
 Operational metadata only.
 
+### request_inputs (R2, forward migration 0003)
+
+```text
+sequence INTEGER PRIMARY KEY AUTOINCREMENT
+request_id UNIQUE -> requests
+payload { text?, attachmentIds[] }
+```
+
+The sequence records committed acceptance order independent of timestamps or request IDs;
+it is not reused after deleting terminal input. Attachment values remain solely in
+`attachments`; the ID array preserves the user's accepted attachment order.
+`SqliteRequestQueueRepository` composes the existing adapters on one connection in
+`BEGIN IMMEDIATE`: duplicate lookup, capacity check, request/attachments/input creation,
+durable acceptance ownership, processed-update marker and `created -> queued` commit
+together or roll back together.
+Only authorized, resolved mapping inputs should reach this application boundary; the
+future Telegram adapter owns the allowlist and command routing.
+
+`SqliteRequestRepository.transition` implements approved retention A: terminal lifecycle
+update, R2 attachment deletion and input deletion share the same transaction. It retains
+requests, dedup markers and mapping references, and leaves legacy R1 attachments unchanged.
+Retention ownership comes from `request_acceptances`, independent of the deletable input.
+For cleanup, either a surviving acceptance record or an R2 input row proves ownership;
+this handles loss of either artifact. Replay still requires the complete acceptance frame.
+No trigger support or migration-language extension is needed. This is logical SQLite
+row deletion, not secure erasure of WAL, freed pages or separately retained backups.
+
+### request_acceptances (R2, forward migration 0004)
+
+This table stores only a primary/foreign key `request_id -> requests`: durable R2
+retention ownership with no text or working attachment references. Acceptance writes
+it in the same transaction; it remains after input deletion. Terminal cleanup therefore
+removes R2 attachments even if the payload row was lost; surviving input proves cleanup
+ownership if the acceptance record was lost instead, without reclassifying legacy
+R1 metadata. If both artifacts are lost, ownership requires external evidence.
+0004 backfills only requests with an existing 0003 input row. If that input
+was already lost before upgrade, no surviving ownership evidence exists: automated
+classification is deliberately not inferred from timestamps, IDs or attachment names.
+
 ---
 
 ## 13. Restart recovery
@@ -484,6 +536,21 @@ Suggested reconciliation:
 - `CANCEL_REQUESTED`: reconcile to `CANCELLED`, `COMPLETED`, or `UNKNOWN` based on evidence.
 
 No automatic replay from `UNKNOWN`.
+
+R2 performs only safe queue reconstruction, before R3 reconciliation exists. A consistent
+read snapshot checks queued lifecycle, durable acceptance ownership, input, exact ordered attachment set and the
+originating dedup marker. Missing/invalid input or incomplete acceptance evidence is
+surfaced as `input_unavailable`; it is never replaced with an empty prompt. Legacy
+created/queued metadata alone cannot be reconstructed.
+
+Uploading/sending/running/cancel-requested work and UNKNOWN are surfaced as
+`reconciliation_required`. They are neither replayed nor rewritten by R2. Every such
+remote key blocks its queued successors, while independent keys may run. SQL claim
+rechecks key blockers and the first accepted request under `BEGIN IMMEDIATE`, then
+persists `uploading` (attachments) or `sending` (text only) before invoking the callback.
+Executor rejection does not imply a pre-submit failure or schedule a retry. An unsettled
+durable lifecycle keeps the key blocked. Request failure classification, provider
+evidence provenance and resolution of these blocks belong to R3/R7.
 
 ---
 
