@@ -25,6 +25,7 @@ type QueueRow = {
   providerConversationId: string;
   sequence: number | null;
   payload: string | null;
+  acceptedRequestId: string | null;
 };
 
 // Все adapters используют один connection: BEGIN IMMEDIATE охватывает dedup, capacity, request, input и QUEUED.
@@ -70,6 +71,10 @@ export class SqliteRequestQueueRepository implements RequestQueueRepository {
             .all(key)[0].count;
           if (pending >= maxPendingPerConversation) return { kind: "rejected", code: "QUEUE_FULL" };
           this.requests.create(request, input.attachments);
+          // Несекретный provenance не зависит от удаляемого payload и фиксируется в общей acceptance transaction.
+          this.database
+            .query("INSERT INTO request_acceptances (request_id) VALUES (?)")
+            .run(request.id);
           this.database.query("INSERT INTO request_inputs (request_id, payload) VALUES (?,?)").run(
             request.id,
             JSON.stringify({
@@ -97,8 +102,9 @@ export class SqliteRequestQueueRepository implements RequestQueueRepository {
         const blocked: QueueSnapshot["blocked"][number][] = [];
         const rows = this.database
           .query<QueueRow, []>(
-            `SELECT r.id AS requestId, c.provider_conversation_id AS providerConversationId, i.sequence, i.payload
+            `SELECT r.id AS requestId, c.provider_conversation_id AS providerConversationId, i.sequence, i.payload, a.request_id AS acceptedRequestId
          FROM requests r JOIN conversations c ON c.id=r.conversation_id LEFT JOIN request_inputs i ON i.request_id=r.id
+         LEFT JOIN request_acceptances a ON a.request_id=r.id
          WHERE r.state NOT IN ('completed','failed','cancelled','timeout') ORDER BY i.sequence, r.id`,
           )
           .all();
@@ -156,7 +162,8 @@ export class SqliteRequestQueueRepository implements RequestQueueRepository {
 
   // Recovery требует полный исходный input и его marker: часть attachments или чужая ссылка делают replay недоказанным.
   private readWork(row: QueueRow, request: Request): QueueWork | null {
-    if (row.sequence === null || row.payload === null) return null;
+    if (row.sequence === null || row.payload === null || row.acceptedRequestId === null)
+      return null;
     let value: unknown;
     try {
       value = JSON.parse(row.payload);

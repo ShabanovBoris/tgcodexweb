@@ -106,7 +106,9 @@ requests, processed updates and attachment metadata. `0002_reuse_archived_alias.
 replaces global alias reservation with uniqueness for unarchived mappings. An R0 database
 applies all migrations; a database at `0001`/`0002` upgrades forward without changing its
 old ledger entries or data. R2's `0003_request_inputs.sql` adds operational input and a
-durable acceptance sequence. See [migration rules](src/persistence/sqlite/migrations/README.md).
+durable acceptance sequence; `0004_request_acceptances.sql` adds retention ownership
+that survives payload loss and backfills existing R2 inputs. A database at 0003 upgrades
+forward too. See [migration rules](src/persistence/sqlite/migrations/README.md).
 The connection enables foreign keys, WAL, FULL synchronous durability, a 5000 ms
 busy timeout and strict parameter binding.
 
@@ -174,7 +176,7 @@ uploaded, and no conversation history, response content or browser authenticatio
 ## R2 acceptance and queue contracts
 
 `SqliteRequestQueueRepository.accept` commits request, ordered input/attachment references,
-dedup marker and queued state together. A duplicate returns its original marker without
+durable retention ownership, dedup marker and queued state together. A duplicate returns its original marker without
 overwriting input or creating another request. Pending capacity is shared by aliases for
 the exact remote ID, counts created/queued work and excludes active processing. A full
 queue rejects without marking that update processed.
@@ -185,7 +187,7 @@ request-service callback and derive concurrency from provider capability. The ca
 must cover the entire remote mutation and persist the correct terminal evidence before
 it resolves. Test executors are deterministic and make no live network calls.
 
-Startup reconstructs only queued requests with complete durable input and matching
+Startup reconstructs only queued requests with durable acceptance ownership, complete input and matching
 dedup/attachment evidence, ordered by acceptance sequence rather than timestamps or IDs.
 Missing input and legacy created/queued metadata are reported as `input_unavailable`.
 Uploading/sending/running/cancel-requested and UNKNOWN are reported as
@@ -196,7 +198,10 @@ keys can still execute. Raw executor errors do not trigger retries or appear in 
 Retention A was approved on 2026-10-01: input remains throughout non-terminal processing
 with no expiry; every terminal transition, including UNKNOWN, atomically deletes new R2
 input and its working attachment metadata. Lifecycle, dedup, old request/mapping references
-and legacy R1 metadata survive. This is SQLite row deletion, not secure erasure of WAL or
+and legacy R1 metadata survive. `request_acceptances` retains only the request ID so cleanup
+still recognizes R2 working references after input loss. The 0004 upgrade classifies existing
+0003 input rows; it cannot reconstruct ownership already lost before upgrade without
+external evidence. This is SQLite row deletion, not secure erasure of WAL or
 backups. Actual temporary-file cleanup belongs to R5.
 
 Shutdown rejects new admissions, stops dispatch, waits already active callbacks, and

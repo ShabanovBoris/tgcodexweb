@@ -487,15 +487,27 @@ it is not reused after deleting terminal input. Attachment values remain solely 
 `attachments`; the ID array preserves the user's accepted attachment order.
 `SqliteRequestQueueRepository` composes the existing adapters on one connection in
 `BEGIN IMMEDIATE`: duplicate lookup, capacity check, request/attachments/input creation,
-processed-update marker and `created -> queued` commit together or roll back together.
+durable acceptance ownership, processed-update marker and `created -> queued` commit
+together or roll back together.
 Only authorized, resolved mapping inputs should reach this application boundary; the
 future Telegram adapter owns the allowlist and command routing.
 
 `SqliteRequestRepository.transition` implements approved retention A: terminal lifecycle
 update, R2 attachment deletion and input deletion share the same transaction. It retains
 requests, dedup markers and mapping references, and leaves legacy R1 attachments unchanged.
+Retention ownership comes from `request_acceptances`, independent of the deletable input.
 No trigger support or migration-language extension is needed. This is logical SQLite
 row deletion, not secure erasure of WAL, freed pages or separately retained backups.
+
+### request_acceptances (R2, forward migration 0004)
+
+This table stores only a primary/foreign key `request_id -> requests`: durable R2
+retention ownership with no text or working attachment references. Acceptance writes
+it in the same transaction; it remains after input deletion. Terminal cleanup therefore
+removes R2 attachments even if the payload row was lost, without reclassifying legacy
+R1 metadata. 0004 backfills only requests with an existing 0003 input row. If that input
+was already lost before upgrade, no surviving ownership evidence exists: automated
+classification is deliberately not inferred from timestamps, IDs or attachment names.
 
 ---
 
@@ -522,7 +534,7 @@ Suggested reconciliation:
 No automatic replay from `UNKNOWN`.
 
 R2 performs only safe queue reconstruction, before R3 reconciliation exists. A consistent
-read snapshot checks queued lifecycle, durable input, exact ordered attachment set and the
+read snapshot checks queued lifecycle, durable acceptance ownership, input, exact ordered attachment set and the
 originating dedup marker. Missing/invalid input or incomplete acceptance evidence is
 surfaced as `input_unavailable`; it is never replaced with an empty prompt. Legacy
 created/queued metadata alone cannot be reconstructed.

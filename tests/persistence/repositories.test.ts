@@ -420,7 +420,7 @@ describe("R1 repositories", () => {
     );
     database.close(true);
     open(legacy.path);
-    expect(migrateDatabase(database)).toBe(2);
+    expect(migrateDatabase(database)).toBe(3);
     expect(operationalRows()).toEqual(rows);
     expect(database.query("SELECT * FROM schema_migrations WHERE version=1").all()).toEqual(ledger);
     expect(database.query("SELECT name FROM sqlite_temp_master WHERE type='table'").all()).toEqual(
@@ -491,7 +491,7 @@ describe("R1 repositories", () => {
     database.close(true);
     open(legacy.path);
     expect(operationalRows()).toEqual(rows);
-    expect(migrateDatabase(database)).toBe(2);
+    expect(migrateDatabase(database)).toBe(3);
     expect(operationalRows()).toEqual(rows);
   });
 
@@ -674,7 +674,7 @@ describe("R1 repositories", () => {
       .filter((name) => name.endsWith(".sql"))
       .reverse())
       copyFileSync(join(production, name), join(migrations, name));
-    expect(migrateDatabase(database, migrations)).toBe(3);
+    expect(migrateDatabase(database, migrations)).toBe(4);
     expect(
       database.query("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").all(),
     ).toEqual(freshSchema);
@@ -697,6 +697,7 @@ describe("R1 repositories", () => {
       "attachments",
       "conversations",
       "processed_updates",
+      "request_acceptances",
       "request_inputs",
       "requests",
       "schema_migrations",

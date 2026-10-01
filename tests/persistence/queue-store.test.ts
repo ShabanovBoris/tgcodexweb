@@ -44,15 +44,17 @@ describe("R2 durable acceptance", () => {
     expect(f.updates.get("2")).toBeNull();
   });
 
-  test.each(["payload", "marker", "queued"])(
+  test.each(["provenance", "payload", "marker", "queued"])(
     "rollback at %s leaves no partial acceptance after reopen",
     (step) => {
       const sql =
-        step === "payload"
-          ? "BEFORE INSERT ON request_inputs"
-          : step === "marker"
-            ? "BEFORE INSERT ON processed_updates"
-            : "BEFORE UPDATE OF state ON requests WHEN NEW.state='queued'";
+        step === "provenance"
+          ? "BEFORE INSERT ON request_acceptances"
+          : step === "payload"
+            ? "BEFORE INSERT ON request_inputs"
+            : step === "marker"
+              ? "BEFORE INSERT ON processed_updates"
+              : "BEFORE UPDATE OF state ON requests WHEN NEW.state='queued'";
       f.database.run(
         `CREATE TRIGGER fail_accept ${sql} BEGIN SELECT RAISE(ABORT, 'synthetic'); END`,
       );
@@ -63,6 +65,7 @@ describe("R2 durable acceptance", () => {
       expect(f.requests.get("r1")).toBeNull();
       expect(f.requests.listAttachments("r1")).toEqual([]);
       expect(f.updates.get("1")).toBeNull();
+      expect(f.database.query("SELECT * FROM request_acceptances").all()).toEqual([]);
       expect(f.store.snapshot()).toEqual({ queued: [], blocked: [] });
       f.database.run("DROP TRIGGER fail_accept");
       expect(f.store.accept(request(), { text: "x", attachments: [] }, 2).kind).toBe("accepted");
@@ -142,6 +145,9 @@ describe("R2 durable acceptance", () => {
       expect(f.requests.listAttachments("r1")).toEqual([]);
       expect(f.database.query("SELECT * FROM request_inputs").all()).toEqual([]);
       expect(f.updates.get("1")?.requestId).toBe("r1");
+      expect(f.database.query("SELECT * FROM request_acceptances").all()).toEqual([
+        { request_id: "r1" },
+      ]);
       expect(f.store.accept(request("again"), { text: "x", attachments: [] }, 2).kind).toBe(
         "duplicate",
       );
@@ -164,6 +170,174 @@ describe("R2 durable acceptance", () => {
     expect(f.requests.get("r1")?.state).toBe("queued");
     expect(f.requests.listAttachments("r1")).toHaveLength(1);
     expect(f.store.snapshot().queued[0].input.text).toBe("synthetic");
+  });
+
+  test.each(["failed", "unknown"] as const)(
+    "lost R2 payload still cleans working attachments on %s while preserving legacy R1 references",
+    (state) => {
+      const legacyAttachment = attachment("legacy-file", "legacy");
+      f.requests.create(request("legacy", "9", "other"), [legacyAttachment]);
+      f.store.accept(request(), { text: "synthetic", attachments: [attachment()] }, 2);
+      if (state === "unknown") {
+        f.store.claim("r1", later);
+        f.requests.transition("r1", { state: "sending", at: later });
+      }
+      f.database.run("DELETE FROM request_inputs WHERE request_id='r1'");
+      f.reopen();
+      expect(f.store.snapshot().blocked).toContainEqual({
+        requestId: "r1",
+        providerConversationId: "remote",
+        reason: state === "failed" ? "input_unavailable" : "reconciliation_required",
+      });
+      f.requests.transition("r1", {
+        state,
+        at: later,
+        failureCode: state === "failed" ? "PROVIDER_UNAVAILABLE" : undefined,
+      });
+      f.requests.transition("legacy", {
+        state: "failed",
+        at: later,
+        failureCode: "PROVIDER_UNAVAILABLE",
+      });
+      f.reopen();
+      expect(f.requests.listAttachments("r1")).toEqual([]);
+      expect(f.requests.listAttachments("legacy")).toEqual([legacyAttachment]);
+      expect(f.requests.get("r1")?.state).toBe(state);
+      expect(f.requests.get("r1")?.conversationId).toBe("c1");
+      expect(f.updates.get("1")?.requestId).toBe("r1");
+      expect(f.store.accept(request("again"), { text: "x", attachments: [] }, 2).kind).toBe(
+        "duplicate",
+      );
+    },
+  );
+
+  test("lost-payload cleanup failure rolls back lifecycle and preserves durable ownership", () => {
+    f.store.accept(request(), { text: "synthetic", attachments: [attachment()] }, 2);
+    f.database.run("DELETE FROM request_inputs WHERE request_id='r1'");
+    f.database.run(
+      "CREATE TRIGGER fail_refs BEFORE DELETE ON attachments BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
+    );
+    expect(() =>
+      f.requests.transition("r1", {
+        state: "failed",
+        at: later,
+        failureCode: "PROVIDER_UNAVAILABLE",
+      }),
+    ).toThrow(DatabaseError);
+    f.reopen();
+    expect(f.requests.get("r1")?.state).toBe("queued");
+    expect(f.requests.listAttachments("r1")).toHaveLength(1);
+    expect(f.database.query("SELECT * FROM request_acceptances").all()).toEqual([
+      { request_id: "r1" },
+    ]);
+    expect(f.store.snapshot().blocked[0].reason).toBe("input_unavailable");
+    f.database.run("DROP TRIGGER fail_refs");
+    f.requests.transition("r1", {
+      state: "failed",
+      at: later,
+      failureCode: "PROVIDER_UNAVAILABLE",
+    });
+    expect(f.requests.listAttachments("r1")).toEqual([]);
+  });
+
+  test("acceptance provenance requires an existing request and cannot overwrite its durable record", () => {
+    f.store.accept(request(), { text: "synthetic", attachments: [] }, 2);
+    expect(() => f.database.run("INSERT INTO request_acceptances VALUES('r1')")).toThrow();
+    expect(() => f.database.run("INSERT INTO request_acceptances VALUES('missing')")).toThrow();
+    expect(() => f.database.run("INSERT INTO request_acceptances VALUES(NULL)")).toThrow();
+    f.reopen();
+    expect(f.database.query("SELECT * FROM request_acceptances").all()).toEqual([
+      { request_id: "r1" },
+    ]);
+    expect(f.database.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  });
+
+  test("0004 upgrades populated 0003 with independent R2 provenance and preserves old rows/ledger through rollback and reopen", () => {
+    const production = resolve(import.meta.dir, "../../src/persistence/sqlite/migrations");
+    const directory = join(f.root, "published-r2");
+    mkdirSync(directory);
+    for (const name of [
+      "0001_domain.sql",
+      "0002_reuse_archived_alias.sql",
+      "0003_request_inputs.sql",
+    ])
+      copyFileSync(join(production, name), join(directory, name));
+    const path = join(f.root, "published-r2.sqlite");
+    let db = openDatabase(path);
+    try {
+      expect(migrateDatabase(db, directory)).toBe(3);
+      db.run("INSERT INTO users VALUES('123',1,?)", [at]);
+      db.run(
+        "INSERT INTO conversations VALUES('c1','123','old','remote',NULL,'ready',?,?,NULL,0)",
+        [at, at],
+      );
+      const requests = new SqliteRequestRepository(db);
+      requests.create(request(), [attachment()]);
+      requests.transition("r1", { state: "queued", at });
+      requests.create(request("legacy", "9"), [attachment("legacy-file", "legacy")]);
+      db.query("INSERT INTO request_inputs (request_id, payload) VALUES (?,?)").run(
+        "r1",
+        JSON.stringify({ text: "synthetic", attachmentIds: ["z"] }),
+      );
+      db.run("INSERT INTO processed_updates VALUES('1','r1',?)", [at]);
+      const names = [
+        "users",
+        "conversations",
+        "requests",
+        "attachments",
+        "processed_updates",
+        "request_inputs",
+        "sqlite_sequence",
+      ];
+      const rows = names.map((name) => db.query(`SELECT * FROM ${name}`).all());
+      const schema = db.query("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").all();
+      const ledger = db.query("SELECT * FROM schema_migrations ORDER BY version").all();
+      copyFileSync(
+        join(production, "0004_request_acceptances.sql"),
+        join(directory, "0004_request_acceptances.sql"),
+      );
+      writeFileSync(join(directory, "0005_failure.sql"), "INSERT INTO missing_table VALUES(1);");
+      expect(() => migrateDatabase(db, directory)).toThrow(DatabaseError);
+      db.close(true);
+      db = openDatabase(path);
+      expect(names.map((name) => db.query(`SELECT * FROM ${name}`).all())).toEqual(rows);
+      expect(db.query("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").all()).toEqual(
+        schema,
+      );
+      expect(db.query("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(ledger);
+      expect(migrateDatabase(db)).toBe(1);
+      expect(names.map((name) => db.query(`SELECT * FROM ${name}`).all())).toEqual(rows);
+      expect(
+        db.query("SELECT * FROM schema_migrations WHERE version<=3 ORDER BY version").all(),
+      ).toEqual(ledger);
+      expect(db.query("SELECT * FROM request_acceptances").all()).toEqual([{ request_id: "r1" }]);
+      expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+      db.close(true);
+      db = openDatabase(path);
+      const reopened = new SqliteRequestRepository(db),
+        store = new SqliteRequestQueueRepository(db);
+      expect(migrateDatabase(db)).toBe(0);
+      expect(store.snapshot().queued[0].input.text).toBe("synthetic");
+      db.run("DELETE FROM request_inputs");
+      expect(store.snapshot().blocked.find((block) => block.requestId === "r1")?.reason).toBe(
+        "input_unavailable",
+      );
+      reopened.transition("r1", {
+        state: "failed",
+        at: later,
+        failureCode: "PROVIDER_UNAVAILABLE",
+      });
+      reopened.transition("legacy", {
+        state: "failed",
+        at: later,
+        failureCode: "PROVIDER_UNAVAILABLE",
+      });
+      expect(reopened.listAttachments("r1")).toEqual([]);
+      expect(reopened.listAttachments("legacy")).toEqual([attachment("legacy-file", "legacy")]);
+      expect(db.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+    } finally {
+      db.close(true);
+    }
   });
 
   test("file-only input and attachment order survive claim; mismatched/duplicate attachment IDs roll back", () => {
@@ -213,7 +387,7 @@ describe("R2 durable acceptance", () => {
     },
   );
 
-  test.each(["missing", "malformed", "attachment", "marker"])(
+  test.each(["missing", "malformed", "attachment", "marker", "provenance"])(
     "queued with %s input/evidence is surfaced, never fabricated or executed",
     (problem) => {
       f.store.accept(request(), { text: "x", attachments: [attachment()] }, 2);
@@ -221,6 +395,7 @@ describe("R2 durable acceptance", () => {
       if (problem === "malformed") f.database.run("UPDATE request_inputs SET payload='invalid'");
       if (problem === "attachment") f.database.run("DELETE FROM attachments");
       if (problem === "marker") f.database.run("DELETE FROM processed_updates");
+      if (problem === "provenance") f.database.run("DELETE FROM request_acceptances");
       f.reopen();
       expect(f.store.snapshot().queued).toEqual([]);
       expect(f.store.snapshot().blocked[0].reason).toBe("input_unavailable");
@@ -283,7 +458,11 @@ describe("R2 durable acceptance", () => {
           join(production, "0003_request_inputs.sql"),
           join(directory, "0003_request_inputs.sql"),
         );
-        writeFileSync(join(directory, "0004_failure.sql"), "INSERT INTO missing_table VALUES(1);");
+        copyFileSync(
+          join(production, "0004_request_acceptances.sql"),
+          join(directory, "0004_request_acceptances.sql"),
+        );
+        writeFileSync(join(directory, "0005_failure.sql"), "INSERT INTO missing_table VALUES(1);");
         expect(() => migrateDatabase(db, directory)).toThrow(DatabaseError);
         db.close(true);
         db = openDatabase(path);
@@ -292,7 +471,7 @@ describe("R2 durable acceptance", () => {
         expect(
           db.query("SELECT name FROM sqlite_master WHERE name='request_inputs'").all(),
         ).toEqual([]);
-        expect(migrateDatabase(db)).toBe(3 - version);
+        expect(migrateDatabase(db)).toBe(4 - version);
         expect(names.map((name) => db.query(`SELECT * FROM ${name}`).all())).toEqual(rows);
         expect(
           db

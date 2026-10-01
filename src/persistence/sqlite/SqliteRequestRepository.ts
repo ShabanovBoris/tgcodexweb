@@ -145,11 +145,12 @@ export class SqliteRequestRepository implements RequestRepository {
               `UPDATE requests SET ${changed.map(([, column]) => `${column}=?`).join(",")} WHERE id=?`,
             )
             .run(...changed.map(([key]) => next[key] ?? null), id);
-          // Retention A атомарен с terminal state. Legacy R1 attachments без R2 input не меняются.
+          // Retention A атомарен с terminal state. Legacy R1 attachments без R2 acceptance не меняются.
           if (terminalStates.includes(next.state)) {
+            // ❌ Удален код проверки ownership по request_inputs: утрата payload не должна отменять cleanup рабочих refs.
             this.database
               .query(`DELETE FROM attachments WHERE request_id=?
-              AND EXISTS (SELECT 1 FROM request_inputs WHERE request_id=?)`)
+              AND EXISTS (SELECT 1 FROM request_acceptances WHERE request_id=?)`)
               .run(id, id);
             this.database.query("DELETE FROM request_inputs WHERE request_id=?").run(id);
           }

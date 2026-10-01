@@ -18,6 +18,13 @@ stay in the existing table. New R2 acceptance and terminal retention are reposit
 transactions. Historical R1 rows and the immutable `0001`/`0002` ledger are preserved;
 missing historical prompt input is not invented or automatically replayed.
 
+`0004_request_acceptances.sql` fixes retention ownership after payload loss. Its single
+request-ID PK/FK record stores no prompt or attachment refs and is not deleted with input.
+It backfills from existing 0003 input rows, while new acceptance writes it atomically.
+Terminal cleanup consults this durable ownership record rather than payload existence.
+All old rows/ledger entries stay unchanged. Missing pre-upgrade ownership evidence cannot
+be reconstructed by heuristics; unproven historical metadata stays unclassified.
+
 Add immutable SQL files named `NNNN_description.sql`, starting at `0001`, with unique
 positive four-digit versions. Every next version must be exactly previous + 1;
 gaps and duplicates are rejected before SQL. Applied files must

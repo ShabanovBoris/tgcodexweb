@@ -91,6 +91,7 @@ describe("local bootstrap CLI", () => {
         { name: "attachments" },
         { name: "conversations" },
         { name: "processed_updates" },
+        { name: "request_acceptances" },
         { name: "request_inputs" },
         { name: "requests" },
         { name: "schema_migrations" },
@@ -101,6 +102,7 @@ describe("local bootstrap CLI", () => {
         { version: 1, name: "0001_domain.sql" },
         { version: 2, name: "0002_reuse_archived_alias.sql" },
         { version: 3, name: "0003_request_inputs.sql" },
+        { version: 4, name: "0004_request_acceptances.sql" },
       ]);
     } finally {
       database.close(true);
