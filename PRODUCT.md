@@ -198,6 +198,10 @@ Recommended additional operator command:
 /doctor
 ```
 
+Removing a local mapping releases its alias for the same user's later `/new` or `/add`.
+An archived mapping retains its ID and request metadata references; reusing an alias
+does not redirect old requests or delete the old remote conversation.
+
 Normal text is treated as a prompt for the active conversation.
 
 A Telegram reply to a previous bot answer remains a normal next message in the selected ChatGPT conversation. Telegram reply threading must not create an implicit new ChatGPT branch in MVP.

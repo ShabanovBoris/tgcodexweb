@@ -10,6 +10,7 @@ export interface ConversationRepository {
   list(telegramUserId: string): Conversation[];
   getActive(telegramUserId: string): Conversation | null;
   select(telegramUserId: string, conversationId: string): void;
-  rename(id: string, alias: string, at: string): void;
-  archive(id: string, at: string): void;
+  // Mutators требуют владельца: global ID не является полномочием менять чужой mapping.
+  rename(telegramUserId: string, id: string, alias: string, at: string): void;
+  archive(telegramUserId: string, id: string, at: string): void;
 }

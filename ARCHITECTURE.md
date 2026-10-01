@@ -408,8 +408,13 @@ created_at
 updated_at
 last_used_at
 archived
-UNIQUE(telegram_user_id, alias)
+UNIQUE(telegram_user_id, alias) WHERE archived=0
 ```
+
+The alias constraint is a partial unique index: `/remove` frees the visible name while
+archived rows retain their original ID/alias/provider identity and request references.
+Rename/archive repository contracts require the owner ID and enforce it in the same SQL
+statement that mutates the mapping. A denied archive must not clear active selection.
 
 ### requests
 

@@ -138,27 +138,33 @@ export class SqliteConversationRepository implements ConversationRepository {
     });
   }
 
-  // Rename меняет только alias/updatedAt; provider identity и active pointer сохраняются.
-  rename(id: string, alias: string, at: string): void {
+  // ❌ Удалены UPDATE только по global ID: он позволял менять чужой mapping без проверки владельца.
+  // Ownership проверяется в самом UPDATE; чужой ID получает тот же отказ, что отсутствующий mapping.
+  // Rename сохраняет provider identity и active pointer, меняя только alias/updatedAt.
+  rename(telegramUserId: string, id: string, alias: string, at: string): void {
     z.string().min(1).parse(alias);
     z.iso.datetime().parse(at);
     repositoryOperation(() => {
       const result = this.database
-        .query("UPDATE conversations SET alias=?, updated_at=? WHERE id=? AND archived=0")
-        .run(alias, at, id);
+        .query(
+          "UPDATE conversations SET alias=?, updated_at=? WHERE id=? AND telegram_user_id=? AND archived=0",
+        )
+        .run(alias, at, id, telegramUserId);
       if (result.changes !== 1) throw new DatabaseError("entity_not_found");
     });
   }
 
-  // Clear selection и archive являются одной транзакцией, чтобы после restart не было dangling active alias.
-  archive(id: string, at: string): void {
+  // Проверка владельца предшествует clear selection внутри той же transaction: отказ ничего не меняет.
+  archive(telegramUserId: string, id: string, at: string): void {
     z.iso.datetime().parse(at);
     repositoryOperation(() =>
       this.database
         .transaction(() => {
           const result = this.database
-            .query("UPDATE conversations SET archived=1, updated_at=? WHERE id=? AND archived=0")
-            .run(at, id);
+            .query(
+              "UPDATE conversations SET archived=1, updated_at=? WHERE id=? AND telegram_user_id=? AND archived=0",
+            )
+            .run(at, id, telegramUserId);
           if (result.changes !== 1) throw new DatabaseError("entity_not_found");
           this.database.query("DELETE FROM active_conversations WHERE conversation_id=?").run(id);
         })

@@ -100,8 +100,10 @@ bun run db:migrate
 
 To select another database, supply `DATABASE_PATH` through the environment or an
 explicit env file. R1 adds `0001_domain.sql`: users, conversations, active selection,
-requests, processed updates and attachment metadata. An R0 database has an empty
-ledger and upgrades by applying `0001`. See [migration rules](src/persistence/sqlite/migrations/README.md).
+requests, processed updates and attachment metadata. `0002_reuse_archived_alias.sql`
+replaces global alias reservation with uniqueness for unarchived mappings. An R0 database
+applies both migrations; a database at `0001` upgrades forward without changing its ledger
+entry or data. See [migration rules](src/persistence/sqlite/migrations/README.md).
 The connection enables foreign keys, WAL, FULL synchronous durability, a 5000 ms
 busy timeout and strict parameter binding.
 
@@ -143,8 +145,10 @@ implement them without Telegram SDK/browser types. Provider identifiers are opaq
 the canonical key is the exact provider conversation ID for the single MVP profile.
 Different aliases may converge on that ID. No queue is implemented here.
 
-Conversation aliases are unique per user, including archived mappings. Rename changes
-only alias/timestamp; archive clears active selection atomically and retains request
+Conversation aliases are unique per user among unarchived mappings. `/remove` releases
+the name for `/new` or `/add` while the archived mapping and historical request IDs remain
+unchanged. Rename/archive require the owner's user ID; foreign/missing IDs receive the same
+`entity_not_found` error. Rename changes only alias/timestamp; archive clears active selection atomically and retains request
 references. The selected mapping must belong to that user and be unarchived. User
 metadata is persisted but does not replace the future transport allowlist check.
 

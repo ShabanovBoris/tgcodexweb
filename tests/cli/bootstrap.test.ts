@@ -97,6 +97,7 @@ describe("local bootstrap CLI", () => {
       ]);
       expect(database.query("SELECT version, name FROM schema_migrations").all()).toEqual([
         { version: 1, name: "0001_domain.sql" },
+        { version: 2, name: "0002_reuse_archived_alias.sql" },
       ]);
     } finally {
       database.close(true);

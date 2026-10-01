@@ -80,6 +80,14 @@ Domain/application code contains no Telegram SDK or browser/provider imports.
 
 # R2 — Idempotency and keyed queue
 
+## Prerequisite: durable operational payload
+
+Before implementing restart-safe queue reconstruction, define persistence and retention
+for the accepted request input (text and attachment references). Lifecycle metadata alone
+cannot reconstruct a queued prompt. Add the next forward migration or an explicitly durable
+payload store; this data is operational input, not a second canonical conversation history.
+R1 does not implement this prerequisite or queue execution.
+
 ## Goal
 
 Make duplicate input and same-conversation concurrency safe before any live provider work.

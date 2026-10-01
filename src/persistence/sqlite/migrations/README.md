@@ -3,6 +3,14 @@
 R0 initialized only `schema_migrations`, with no applied production migrations.
 R1 adds `0001_domain.sql`; an R0 database upgrades by applying this first business migration.
 
+`0002_reuse_archived_alias.sql` is the forward correction for alias reuse after `/remove`.
+It leaves the published `0001` byte-identical. SQLite's table UNIQUE is replaced with a
+partial unique index for `archived=0` by backing up operational rows in temporary tables,
+rebuilding the foreign-key reference graph leaf-to-root, and restoring data root-to-leaf.
+All IDs, metadata, FK/CHECK constraints and the old ledger entry are preserved.
+Foreign keys stay enabled throughout. Tests compare every row on upgrade and prove rollback
+to the complete `0001` schema/data/ledger if a later pending migration fails.
+
 Add immutable SQL files named `NNNN_description.sql`, starting at `0001`, with unique
 positive four-digit versions. Every next version must be exactly previous + 1;
 gaps and duplicates are rejected before SQL. Applied files must
