@@ -172,9 +172,13 @@ describe("R2 durable acceptance", () => {
     expect(f.store.snapshot().queued[0].input.text).toBe("synthetic");
   });
 
-  test.each(["failed", "unknown"] as const)(
-    "lost R2 payload still cleans working attachments on %s while preserving legacy R1 references",
-    (state) => {
+  test.each(
+    (["failed", "unknown"] as const).flatMap((state) =>
+      (["payload", "provenance"] as const).map((missing) => ({ state, missing })),
+    ),
+  )(
+    "lost R2 $missing still cleans working attachments on $state while preserving legacy R1 references",
+    ({ state, missing }) => {
       const legacyAttachment = attachment("legacy-file", "legacy");
       f.requests.create(request("legacy", "9", "other"), [legacyAttachment]);
       f.store.accept(request(), { text: "synthetic", attachments: [attachment()] }, 2);
@@ -182,7 +186,11 @@ describe("R2 durable acceptance", () => {
         f.store.claim("r1", later);
         f.requests.transition("r1", { state: "sending", at: later });
       }
-      f.database.run("DELETE FROM request_inputs WHERE request_id='r1'");
+      f.database.run(
+        missing === "payload"
+          ? "DELETE FROM request_inputs WHERE request_id='r1'"
+          : "DELETE FROM request_acceptances WHERE request_id='r1'",
+      );
       f.reopen();
       expect(f.store.snapshot().blocked).toContainEqual({
         requestId: "r1",
@@ -201,6 +209,9 @@ describe("R2 durable acceptance", () => {
       });
       f.reopen();
       expect(f.requests.listAttachments("r1")).toEqual([]);
+      expect(f.database.query("SELECT * FROM request_inputs WHERE request_id='r1'").all()).toEqual(
+        [],
+      );
       expect(f.requests.listAttachments("legacy")).toEqual([legacyAttachment]);
       expect(f.requests.get("r1")?.state).toBe(state);
       expect(f.requests.get("r1")?.conversationId).toBe("c1");
@@ -211,34 +222,44 @@ describe("R2 durable acceptance", () => {
     },
   );
 
-  test("lost-payload cleanup failure rolls back lifecycle and preserves durable ownership", () => {
-    f.store.accept(request(), { text: "synthetic", attachments: [attachment()] }, 2);
-    f.database.run("DELETE FROM request_inputs WHERE request_id='r1'");
-    f.database.run(
-      "CREATE TRIGGER fail_refs BEFORE DELETE ON attachments BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
-    );
-    expect(() =>
+  test.each(["payload", "provenance"])(
+    "lost %s cleanup failure rolls back lifecycle and preserves surviving ownership",
+    (missing) => {
+      f.store.accept(request(), { text: "synthetic", attachments: [attachment()] }, 2);
+      f.database.run(
+        missing === "payload"
+          ? "DELETE FROM request_inputs WHERE request_id='r1'"
+          : "DELETE FROM request_acceptances WHERE request_id='r1'",
+      );
+      f.database.run(
+        "CREATE TRIGGER fail_refs BEFORE DELETE ON attachments BEGIN SELECT RAISE(ABORT, 'synthetic'); END",
+      );
+      expect(() =>
+        f.requests.transition("r1", {
+          state: "failed",
+          at: later,
+          failureCode: "PROVIDER_UNAVAILABLE",
+        }),
+      ).toThrow(DatabaseError);
+      f.reopen();
+      expect(f.requests.get("r1")?.state).toBe("queued");
+      expect(f.requests.listAttachments("r1")).toHaveLength(1);
+      expect(f.database.query("SELECT * FROM request_acceptances").all()).toEqual(
+        missing === "payload" ? [{ request_id: "r1" }] : [],
+      );
+      expect(f.database.query("SELECT request_id FROM request_inputs").all()).toEqual(
+        missing === "provenance" ? [{ request_id: "r1" }] : [],
+      );
+      expect(f.store.snapshot().blocked[0].reason).toBe("input_unavailable");
+      f.database.run("DROP TRIGGER fail_refs");
       f.requests.transition("r1", {
         state: "failed",
         at: later,
         failureCode: "PROVIDER_UNAVAILABLE",
-      }),
-    ).toThrow(DatabaseError);
-    f.reopen();
-    expect(f.requests.get("r1")?.state).toBe("queued");
-    expect(f.requests.listAttachments("r1")).toHaveLength(1);
-    expect(f.database.query("SELECT * FROM request_acceptances").all()).toEqual([
-      { request_id: "r1" },
-    ]);
-    expect(f.store.snapshot().blocked[0].reason).toBe("input_unavailable");
-    f.database.run("DROP TRIGGER fail_refs");
-    f.requests.transition("r1", {
-      state: "failed",
-      at: later,
-      failureCode: "PROVIDER_UNAVAILABLE",
-    });
-    expect(f.requests.listAttachments("r1")).toEqual([]);
-  });
+      });
+      expect(f.requests.listAttachments("r1")).toEqual([]);
+    },
+  );
 
   test("acceptance provenance requires an existing request and cannot overwrite its durable record", () => {
     f.store.accept(request(), { text: "synthetic", attachments: [] }, 2);

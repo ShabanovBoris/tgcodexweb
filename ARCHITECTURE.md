@@ -496,6 +496,8 @@ future Telegram adapter owns the allowlist and command routing.
 update, R2 attachment deletion and input deletion share the same transaction. It retains
 requests, dedup markers and mapping references, and leaves legacy R1 attachments unchanged.
 Retention ownership comes from `request_acceptances`, independent of the deletable input.
+For cleanup, either a surviving acceptance record or an R2 input row proves ownership;
+this handles loss of either artifact. Replay still requires the complete acceptance frame.
 No trigger support or migration-language extension is needed. This is logical SQLite
 row deletion, not secure erasure of WAL, freed pages or separately retained backups.
 
@@ -504,8 +506,10 @@ row deletion, not secure erasure of WAL, freed pages or separately retained back
 This table stores only a primary/foreign key `request_id -> requests`: durable R2
 retention ownership with no text or working attachment references. Acceptance writes
 it in the same transaction; it remains after input deletion. Terminal cleanup therefore
-removes R2 attachments even if the payload row was lost, without reclassifying legacy
-R1 metadata. 0004 backfills only requests with an existing 0003 input row. If that input
+removes R2 attachments even if the payload row was lost; surviving input proves cleanup
+ownership if the acceptance record was lost instead, without reclassifying legacy
+R1 metadata. If both artifacts are lost, ownership requires external evidence.
+0004 backfills only requests with an existing 0003 input row. If that input
 was already lost before upgrade, no surviving ownership evidence exists: automated
 classification is deliberately not inferred from timestamps, IDs or attachment names.
 

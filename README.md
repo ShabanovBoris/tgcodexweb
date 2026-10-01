@@ -199,7 +199,10 @@ Retention A was approved on 2026-10-01: input remains throughout non-terminal pr
 with no expiry; every terminal transition, including UNKNOWN, atomically deletes new R2
 input and its working attachment metadata. Lifecycle, dedup, old request/mapping references
 and legacy R1 metadata survive. `request_acceptances` retains only the request ID so cleanup
-still recognizes R2 working references after input loss. The 0004 upgrade classifies existing
+still recognizes R2 working references after input loss; surviving R2 input also proves
+cleanup ownership after acceptance-record loss. Claim still requires both records.
+If both artifacts are lost, automatic ownership classification is impossible.
+The 0004 upgrade classifies existing
 0003 input rows; it cannot reconstruct ownership already lost before upgrade without
 external evidence. This is SQLite row deletion, not secure erasure of WAL or
 backups. Actual temporary-file cleanup belongs to R5.

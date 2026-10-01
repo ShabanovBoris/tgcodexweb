@@ -21,7 +21,8 @@ missing historical prompt input is not invented or automatically replayed.
 `0004_request_acceptances.sql` fixes retention ownership after payload loss. Its single
 request-ID PK/FK record stores no prompt or attachment refs and is not deleted with input.
 It backfills from existing 0003 input rows, while new acceptance writes it atomically.
-Terminal cleanup consults this durable ownership record rather than payload existence.
+Terminal cleanup accepts either surviving ownership record or R2 input row as evidence;
+queued claim requires both. This covers loss of either artifact without reclassifying legacy rows.
 All old rows/ledger entries stay unchanged. Missing pre-upgrade ownership evidence cannot
 be reconstructed by heuristics; unproven historical metadata stays unclassified.
 
