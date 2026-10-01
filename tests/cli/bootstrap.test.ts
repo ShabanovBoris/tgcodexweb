@@ -91,13 +91,16 @@ describe("local bootstrap CLI", () => {
         { name: "attachments" },
         { name: "conversations" },
         { name: "processed_updates" },
+        { name: "request_inputs" },
         { name: "requests" },
         { name: "schema_migrations" },
+        { name: "sqlite_sequence" },
         { name: "users" },
       ]);
       expect(database.query("SELECT version, name FROM schema_migrations").all()).toEqual([
         { version: 1, name: "0001_domain.sql" },
         { version: 2, name: "0002_reuse_archived_alias.sql" },
+        { version: 3, name: "0003_request_inputs.sql" },
       ]);
     } finally {
       database.close(true);

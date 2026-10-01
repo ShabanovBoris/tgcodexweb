@@ -1,4 +1,4 @@
-# TG WebGPT Gateway — R1 domain and persistence
+# TG WebGPT Gateway — R2 idempotency and keyed queue
 
 This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
@@ -11,8 +11,9 @@ Read order:
 5. `AGENTS.md`
 6. `GOAL.md`
 
-The repository includes the R0 shell and R1 domain/persistence. R2 and later phases
-are not implemented. See [R1 evidence](docs/verification/R1.md).
+The repository includes the R0 shell, R1 domain/persistence and R2 durable acceptance
+and keyed queue. R3 and later phases are not implemented. See
+[R1 evidence](docs/verification/R1.md) and [R2 evidence](docs/verification/R2.md).
 
 ## Prerequisites and install
 
@@ -81,8 +82,9 @@ creating the database. Errors list field names and fixed reasons, never input va
 | `LOG_CONTENT` | `false`; Boolean values must be `true` or `false` |
 
 All numeric limits must be positive safe integers. Relative paths resolve from the
-working directory. Queue, request and attachment settings are validated values for
-future phases; R0 does not implement those operations. `LOG_CONTENT` is validated,
+working directory. R2 consumes the pending queue limit when a queue runtime is composed;
+the one-shot bootstrap does not run a queue. Generation/attachment limits are for future
+phases. `LOG_CONTENT` is validated,
 but ordinary R0 logs have no prompt/response fields even when it is `true`.
 
 ## Bootstrap and database
@@ -102,8 +104,9 @@ To select another database, supply `DATABASE_PATH` through the environment or an
 explicit env file. R1 adds `0001_domain.sql`: users, conversations, active selection,
 requests, processed updates and attachment metadata. `0002_reuse_archived_alias.sql`
 replaces global alias reservation with uniqueness for unarchived mappings. An R0 database
-applies both migrations; a database at `0001` upgrades forward without changing its ledger
-entry or data. See [migration rules](src/persistence/sqlite/migrations/README.md).
+applies all migrations; a database at `0001`/`0002` upgrades forward without changing its
+old ledger entries or data. R2's `0003_request_inputs.sql` adds operational input and a
+durable acceptance sequence. See [migration rules](src/persistence/sqlite/migrations/README.md).
 The connection enables foreign keys, WAL, FULL synchronous durability, a 5000 ms
 busy timeout and strict parameter binding.
 
@@ -132,8 +135,8 @@ bun run verify
 `format` explicitly writes formatting changes. `verify` does not change source files.
 Biome checks TypeScript/JSON; Markdown, TOML and SQL are outside its formatter scope.
 
-R1 includes no Telegram transport, `ChatProvider`, browser integration,
-queue or doctor/status implementation. Compatibility
+R2 includes no Telegram transport, `ChatProvider`, browser integration,
+or doctor/status implementation. Compatibility
 with arbitrary existing ChatGPT conversations remains unproven and must be resolved
 before real provider integration.
 
@@ -143,7 +146,7 @@ before real provider integration.
 state reducer. `src/ports` defines synchronous repository contracts; SQLite adapters
 implement them without Telegram SDK/browser types. Provider identifiers are opaque:
 the canonical key is the exact provider conversation ID for the single MVP profile.
-Different aliases may converge on that ID. No queue is implemented here.
+Different aliases may converge on that ID and share the R2 queue key.
 
 Conversation aliases are unique per user among unarchived mappings. `/remove` releases
 the name for `/new` or `/add` while the archived mapping and historical request IDs remain
@@ -155,7 +158,7 @@ metadata is persisted but does not replace the future transport allowlist check.
 Requests are created with durable IDs and optional attachment metadata in one transaction.
 The originating Telegram update ID is unique. Processed-update markers are immutable;
 commands can have no request ID, and multiple markers may reference one request.
-The R2 service will coordinate ingress acceptance; R1 provides storage primitives only.
+R2's compound acceptance transaction coordinates these primitives with durable input.
 
 Request transitions retain `startedAt` separately from confirmed `submittedAt`.
 `sending -> failed` requires `SEND_FAILED_PRE_SUBMIT`; ambiguous submission can become
@@ -165,5 +168,37 @@ Only normalized failure codes are stored in R1; optional free-form redacted deta
 the full architecture are deferred until a trusted error mapper exists.
 
 Attachment metadata stores a transport file reference and optional generated storage key.
-A remote filename is display metadata, never a local path. R1 downloads/uploads no files
-and stores no conversation history, prompt/response content or browser authentication.
+A remote filename is display metadata, never a local path. No files are downloaded or
+uploaded, and no conversation history, response content or browser authentication is stored.
+
+## R2 acceptance and queue contracts
+
+`SqliteRequestQueueRepository.accept` commits request, ordered input/attachment references,
+dedup marker and queued state together. A duplicate returns its original marker without
+overwriting input or creating another request. Pending capacity is shared by aliases for
+the exact remote ID, counts created/queued work and excludes active processing. A full
+queue rejects without marking that update processed.
+
+`RequestQueue` owns admission/dispatch and uses an injected async executor. This is a
+single runtime with explicit pending/global concurrency limits; R3 will supply the real
+request-service callback and derive concurrency from provider capability. The callback
+must cover the entire remote mutation and persist the correct terminal evidence before
+it resolves. Test executors are deterministic and make no live network calls.
+
+Startup reconstructs only queued requests with complete durable input and matching
+dedup/attachment evidence, ordered by acceptance sequence rather than timestamps or IDs.
+Missing input and legacy created/queued metadata are reported as `input_unavailable`.
+Uploading/sending/running/cancel-requested and UNKNOWN are reported as
+`reconciliation_required`; R2 leaves their states unchanged and never replays them.
+Their remote keys block queued successors until future reconciliation. Independent
+keys can still execute. Raw executor errors do not trigger retries or appear in diagnostics.
+
+Retention A was approved on 2026-10-01: input remains throughout non-terminal processing
+with no expiry; every terminal transition, including UNKNOWN, atomically deletes new R2
+input and its working attachment metadata. Lifecycle, dedup, old request/mapping references
+and legacy R1 metadata survive. This is SQLite row deletion, not secure erasure of WAL or
+backups. Actual temporary-file cleanup belongs to R5.
+
+Shutdown rejects new admissions, stops dispatch, waits already active callbacks, and
+retains pending input for restart. A crashed active callback remains blocked; R3/R7 own
+provider reconciliation. `start` remains the local one-shot bootstrap described above.

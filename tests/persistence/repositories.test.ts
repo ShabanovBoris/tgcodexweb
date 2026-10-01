@@ -4,7 +4,13 @@ import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { type Conversation, canonicalConversationKey } from "../../src/domain/Conversation";
-import { type Request, type RequestState, RequestTransitionError } from "../../src/domain/Request";
+import {
+  type Request,
+  type RequestState,
+  type RequestTransition,
+  RequestTransitionError,
+  transitionRequest,
+} from "../../src/domain/Request";
 import { DatabaseError, openDatabase } from "../../src/persistence/sqlite/Database";
 import { migrateDatabase } from "../../src/persistence/sqlite/migrations";
 import { SqliteConversationRepository } from "../../src/persistence/sqlite/SqliteConversationRepository";
@@ -60,27 +66,49 @@ function request(id = "r1", update = "1", conversationId = "c1"): Request {
   };
 }
 
-// Real transitions seed every lifecycle frame identically on the reviewed and upgraded schemas.
-function reachState(id: string, state: RequestState): void {
+// Migration fixtures use the reducer with legacy SQL; normal state tests still exercise the actual adapter.
+function reachState(id: string, state: RequestState, legacySchema = false): void {
+  const advance = (transition: RequestTransition) => {
+    if (!legacySchema) {
+      requests.transition(id, transition);
+      return;
+    }
+    const current = requests.get(id);
+    if (!current) throw new Error("Missing fixture request");
+    const next = transitionRequest(current, transition);
+    database
+      .query(
+        `UPDATE requests SET state=?, started_at=?, submitted_at=?, finished_at=?, provider_request_id=?, failure_code=? WHERE id=?`,
+      )
+      .run(
+        next.state,
+        next.startedAt ?? null,
+        next.submittedAt ?? null,
+        next.finishedAt ?? null,
+        next.providerRequestId ?? null,
+        next.failureCode ?? null,
+        id,
+      );
+  };
   if (state === "created") return;
-  requests.transition(id, { state: "queued", at });
+  advance({ state: "queued", at });
   if (state === "queued") return;
   if (state === "failed") {
-    requests.transition(id, { state: "failed", at: later, failureCode: "PROVIDER_UNAVAILABLE" });
+    advance({ state: "failed", at: later, failureCode: "PROVIDER_UNAVAILABLE" });
     return;
   }
   if (state === "uploading") {
-    requests.transition(id, { state: "uploading", at });
+    advance({ state: "uploading", at });
     return;
   }
-  requests.transition(id, { state: "sending", at });
+  advance({ state: "sending", at });
   if (state === "sending") return;
   if (state === "unknown") {
-    requests.transition(id, { state: "unknown", at: later });
+    advance({ state: "unknown", at: later });
     return;
   }
-  requests.transition(id, { state: "running", at: later, providerRequestId: `opaque-${id}` });
-  if (state !== "running") requests.transition(id, { state, at: later });
+  advance({ state: "running", at: later, providerRequestId: `opaque-${id}` });
+  if (state !== "running") advance({ state, at: later });
 }
 
 // Seed the exact published 0001 independently of current migrations, including all nullable/evidence fields.
@@ -132,7 +160,7 @@ function openLegacyDatabase(): { path: string; directory: string } {
         },
       ],
     );
-    reachState(id, state);
+    reachState(id, state, true);
     updates.record({ telegramUpdateId: String(index + 10), requestId: id, processedAt: later });
   });
   updates.record({ telegramUpdateId: "100", processedAt: at });
@@ -392,7 +420,7 @@ describe("R1 repositories", () => {
     );
     database.close(true);
     open(legacy.path);
-    expect(migrateDatabase(database)).toBe(1);
+    expect(migrateDatabase(database)).toBe(2);
     expect(operationalRows()).toEqual(rows);
     expect(database.query("SELECT * FROM schema_migrations WHERE version=1").all()).toEqual(ledger);
     expect(database.query("SELECT name FROM sqlite_temp_master WHERE type='table'").all()).toEqual(
@@ -463,7 +491,7 @@ describe("R1 repositories", () => {
     database.close(true);
     open(legacy.path);
     expect(operationalRows()).toEqual(rows);
-    expect(migrateDatabase(database)).toBe(1);
+    expect(migrateDatabase(database)).toBe(2);
     expect(operationalRows()).toEqual(rows);
   });
 
@@ -646,7 +674,7 @@ describe("R1 repositories", () => {
       .filter((name) => name.endsWith(".sql"))
       .reverse())
       copyFileSync(join(production, name), join(migrations, name));
-    expect(migrateDatabase(database, migrations)).toBe(2);
+    expect(migrateDatabase(database, migrations)).toBe(3);
     expect(
       database.query("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").all(),
     ).toEqual(freshSchema);
@@ -657,7 +685,7 @@ describe("R1 repositories", () => {
     expect(database.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
   });
 
-  test("storage contains operational metadata columns and no history/auth tables", () => {
+  test("storage contains operational input/metadata and no history/auth tables", () => {
     const names = database
       .query<{ name: string }, []>(
         "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -669,8 +697,10 @@ describe("R1 repositories", () => {
       "attachments",
       "conversations",
       "processed_updates",
+      "request_inputs",
       "requests",
       "schema_migrations",
+      "sqlite_sequence",
       "users",
     ]);
     const fields = names.flatMap((name) =>

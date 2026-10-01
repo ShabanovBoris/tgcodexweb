@@ -264,9 +264,18 @@ Local storage owns:
 - logical conversation aliases;
 - remote conversation identifiers/URLs;
 - request lifecycle metadata;
+- accepted request text and attachment references needed for execution;
 - Telegram update deduplication keys;
 - attachment metadata required for processing;
 - health/recovery metadata.
+
+Accepted input is operational data, not conversation history. The approved R2 retention
+policy (2026-10-01) preserves it throughout non-terminal processing without expiry that
+could invalidate a queued request. A transition to `completed`, `failed`, `cancelled`,
+`timeout` or `unknown` deletes the text and working attachment references atomically.
+Request identity, lifecycle/submission metadata, dedup markers and historical mapping
+references remain. UNKNOWN never permits automatic replay of the original request.
+This policy applies to newly accepted R2 input; existing R1 metadata is preserved.
 
 The browser profile owns:
 
