@@ -84,16 +84,27 @@ describe("local bootstrap CLI", () => {
     }
     const database = new Database(join(root, "data/gateway.sqlite"), { readonly: true });
     try {
-      expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([
+      expect(
+        database.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all(),
+      ).toEqual([
+        { name: "active_conversations" },
+        { name: "attachments" },
+        { name: "conversations" },
+        { name: "processed_updates" },
+        { name: "requests" },
         { name: "schema_migrations" },
+        { name: "users" },
       ]);
-      expect(database.query("SELECT * FROM schema_migrations").all()).toEqual([]);
+      expect(database.query("SELECT version, name FROM schema_migrations").all()).toEqual([
+        { version: 1, name: "0001_domain.sql" },
+        { version: 2, name: "0002_reuse_archived_alias.sql" },
+      ]);
     } finally {
       database.close(true);
     }
   });
 
-  test("bootstrap is one-shot, creates only the ledger and never announces READY", () => {
+  test("bootstrap is one-shot, migrates local metadata and never announces READY", () => {
     const result = run("start", fixtures);
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stderr.toString()).operation).toBe("bootstrap.complete");

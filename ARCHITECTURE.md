@@ -339,7 +339,10 @@ After a crash, if a request had potentially crossed the submission boundary but 
 
 ## 10. Queue architecture
 
-Keyed FIFO queue by canonical local conversation ID.
+Keyed FIFO queue by canonical provider conversation identity within the single MVP
+provider/profile. Local mapping IDs and aliases are not serialization keys: two
+mappings may reference one remote conversation (AC-E05). R1 exposes the exact opaque
+`providerConversationId` as that key; queue execution belongs to R2.
 
 ```text
 conv-A: req-1 RUNNING -> req-2 QUEUED -> req-3 QUEUED
@@ -349,7 +352,7 @@ conv-B: req-4 RUNNING -> req-5 QUEUED
 Invariants:
 
 ```text
-runningRequests(conversationId) <= 1
+runningRequests(canonicalProviderConversationId) <= 1
 ```
 
 and, when provider capability allows:
@@ -405,8 +408,13 @@ created_at
 updated_at
 last_used_at
 archived
-UNIQUE(telegram_user_id, alias)
+UNIQUE(telegram_user_id, alias) WHERE archived=0
 ```
+
+The alias constraint is a partial unique index: `/remove` frees the visible name while
+archived rows retain their original ID/alias/provider identity and request references.
+Rename/archive repository contracts require the owner ID and enforce it in the same SQL
+statement that mutates the mapping. A denied archive must not clear active selection.
 
 ### requests
 
@@ -424,6 +432,22 @@ finished_at
 failure_code
 failure_detail_redacted
 ```
+
+R1 persists normalized `failure_code` only. Optional free-form redacted details require
+a trusted error mapper and a forward migration in a later phase; raw upstream errors
+are never accepted by the R1 repository contract.
+
+### active_conversations
+
+```text
+telegram_user_id PK -> users
+conversation_id
+FK(telegram_user_id, conversation_id) -> conversations(telegram_user_id, id)
+```
+
+This selection is durable for AC-F01. The repository permits selection only of an
+unarchived mapping owned by that user, and archives/clears selection atomically.
+An archived mapping remains available for historical request metadata.
 
 ### processed_updates
 

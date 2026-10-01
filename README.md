@@ -1,4 +1,4 @@
-# TG WebGPT Gateway — R0 bootstrap
+# TG WebGPT Gateway — R1 domain and persistence
 
 This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
@@ -11,7 +11,8 @@ Read order:
 5. `AGENTS.md`
 6. `GOAL.md`
 
-The repository now includes the local R0 shell. Subsequent roadmap phases are not implemented.
+The repository includes the R0 shell and R1 domain/persistence. R2 and later phases
+are not implemented. See [R1 evidence](docs/verification/R1.md).
 
 ## Prerequisites and install
 
@@ -36,7 +37,7 @@ bun run verify
 ```
 
 `verify` needs only declared local dependencies. It runs toolchain validation,
-typecheck, lint, format checks and all R0 tests. Tests use synthetic values and
+typecheck, lint, format checks and all local tests. Tests use synthetic values and
 temporary directories and make no Telegram/ChatGPT requests. Package installation
 requires access to the package registry; verification after installation is offline.
 
@@ -98,8 +99,11 @@ bun run db:migrate
 ```
 
 To select another database, supply `DATABASE_PATH` through the environment or an
-explicit env file. The only R0 production table is `schema_migrations`; business
-tables belong to R1. See [migration rules](src/persistence/sqlite/migrations/README.md).
+explicit env file. R1 adds `0001_domain.sql`: users, conversations, active selection,
+requests, processed updates and attachment metadata. `0002_reuse_archived_alias.sql`
+replaces global alias reservation with uniqueness for unarchived mappings. An R0 database
+applies both migrations; a database at `0001` upgrades forward without changing its ledger
+entry or data. See [migration rules](src/persistence/sqlite/migrations/README.md).
 The connection enables foreign keys, WAL, FULL synchronous durability, a 5000 ms
 busy timeout and strict parameter binding.
 
@@ -128,7 +132,38 @@ bun run verify
 `format` explicitly writes formatting changes. `verify` does not change source files.
 Biome checks TypeScript/JSON; Markdown, TOML and SQL are outside its formatter scope.
 
-R0 includes no Telegram transport, `ChatProvider`, browser integration, domain models,
-queue, doctor/status implementation or production business migration. Compatibility
+R1 includes no Telegram transport, `ChatProvider`, browser integration,
+queue or doctor/status implementation. Compatibility
 with arbitrary existing ChatGPT conversations remains unproven and must be resolved
 before real provider integration.
+
+## R1 persistence contracts
+
+`src/domain` contains validated, immutable business snapshots and a pure request
+state reducer. `src/ports` defines synchronous repository contracts; SQLite adapters
+implement them without Telegram SDK/browser types. Provider identifiers are opaque:
+the canonical key is the exact provider conversation ID for the single MVP profile.
+Different aliases may converge on that ID. No queue is implemented here.
+
+Conversation aliases are unique per user among unarchived mappings. `/remove` releases
+the name for `/new` or `/add` while the archived mapping and historical request IDs remain
+unchanged. Rename/archive require the owner's user ID; foreign/missing IDs receive the same
+`entity_not_found` error. Rename changes only alias/timestamp; archive clears active selection atomically and retains request
+references. The selected mapping must belong to that user and be unarchived. User
+metadata is persisted but does not replace the future transport allowlist check.
+
+Requests are created with durable IDs and optional attachment metadata in one transaction.
+The originating Telegram update ID is unique. Processed-update markers are immutable;
+commands can have no request ID, and multiple markers may reference one request.
+The R2 service will coordinate ingress acceptance; R1 provides storage primitives only.
+
+Request transitions retain `startedAt` separately from confirmed `submittedAt`.
+`sending -> failed` requires `SEND_FAILED_PRE_SUBMIT`; ambiguous submission can become
+`unknown`, which has no replay transition. Cancellation races can settle as completed,
+cancelled or unknown. Reopening storage preserves states without provider reconciliation.
+Only normalized failure codes are stored in R1; optional free-form redacted details from
+the full architecture are deferred until a trusted error mapper exists.
+
+Attachment metadata stores a transport file reference and optional generated storage key.
+A remote filename is display metadata, never a local path. R1 downloads/uploads no files
+and stores no conversation history, prompt/response content or browser authentication.

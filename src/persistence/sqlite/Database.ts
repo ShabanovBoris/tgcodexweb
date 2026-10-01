@@ -11,6 +11,13 @@ export class DatabaseError extends Error {
       | "initialization_failed"
       | "migration_files_invalid"
       | "migration_history_changed"
+      | "repository_failed"
+      | "unique_conflict"
+      | "foreign_key_violation"
+      | "constraint_violation"
+      | "entity_not_found"
+      | "invalid_selection"
+      | "invalid_request_input"
       | "migration_failed",
     cause?: unknown,
   ) {

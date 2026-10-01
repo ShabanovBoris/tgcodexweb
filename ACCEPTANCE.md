@@ -103,6 +103,8 @@ when the user sends `/new coding`,
 then no second mapping with the same alias is created,
 and the bot returns a deterministic validation error.
 
+This applies to unarchived mappings. An archived mapping does not reserve the alias.
+
 ## AC-C04 — Add existing conversation
 
 Given the user has access to an existing ChatGPT Web conversation,
@@ -139,6 +141,13 @@ then the provider conversation identifier remains unchanged.
 When `/remove research` succeeds,
 then the local mapping is removed or archived,
 but the remote ChatGPT conversation is not deleted.
+
+The alias becomes available for a new mapping owned by the same user. Existing requests
+remain linked to the archived mapping's ID and original provider identity. The new mapping
+must not inherit historical requests merely because its alias matches.
+
+Rename/remove operations must reject a mapping owned by another user without changing
+either user's mapping, active selection or request metadata.
 
 ---
 

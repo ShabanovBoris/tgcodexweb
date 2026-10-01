@@ -19,7 +19,7 @@ let root: string;
 let directory: string;
 let database: Database;
 
-// Каждый тест владеет отдельной файловой БД и fixtures; production schema остаётся только ledger.
+// Каждый тест владеет отдельной файловой БД и fixtures, независимо от production migrations.
 function addMigration(name: string): void {
   copyFileSync(join(fixtures, name), join(directory, name));
 }
@@ -37,8 +37,8 @@ afterEach(() => {
 });
 
 describe("SQLite migrations", () => {
-  test("fresh production database contains only the empty migration ledger", () => {
-    expect(migrateDatabase(database)).toBe(0);
+  test("empty R0 migration directory creates only the ledger", () => {
+    expect(migrateDatabase(database, directory)).toBe(0);
     expect(database.query("SELECT name FROM sqlite_master WHERE type = 'table'").all()).toEqual([
       { name: "schema_migrations" },
     ]);
@@ -122,11 +122,127 @@ describe("SQLite migrations", () => {
     ]);
   });
 
-  test("rejects a new migration inserted before applied history", () => {
-    copyFileSync(join(fixtures, "0001_probe.sql"), join(directory, "0002_probe.sql"));
+  test("rejects a renumbered applied migration", () => {
+    addMigration("0001_probe.sql");
     migrateDatabase(database, directory);
-    writeFileSync(join(directory, "0001_inserted.sql"), "SELECT 1;\n");
+    copyFileSync(join(directory, "0001_probe.sql"), join(directory, "0002_probe.sql"));
+    writeFileSync(join(directory, "0001_probe.sql"), "SELECT 1;\n");
     expect(() => migrateDatabase(database, directory)).toThrow(DatabaseError);
+  });
+
+  test.each([{ names: ["0002_gap.sql"] }, { names: ["0001_probe.sql", "0003_gap.sql"] }])(
+    "rejects noncontiguous versions before SQL: %j",
+    ({ names }) => {
+      for (const name of names) writeFileSync(join(directory, name), "CREATE TABLE gap(id);\n");
+      expect(() => migrateDatabase(database, directory)).toThrow(DatabaseError);
+      expect(database.query("SELECT name FROM sqlite_master").all()).toEqual([]);
+    },
+  );
+
+  test.each([false, true])(
+    "preflights COMMIT across all pending files (initialized=%s)",
+    (initialized) => {
+      if (initialized) {
+        addMigration("0001_probe.sql");
+        migrateDatabase(database, directory);
+      }
+      const schema = database.query("SELECT * FROM sqlite_master ORDER BY name").all();
+      const ledger = initialized ? database.query("SELECT * FROM schema_migrations").all() : [];
+      writeFileSync(
+        join(directory, initialized ? "0002_partial.sql" : "0001_partial.sql"),
+        "CREATE TABLE partial(id); INSERT INTO partial VALUES(1);",
+      );
+      writeFileSync(
+        join(directory, initialized ? "0003_commit.sql" : "0002_commit.sql"),
+        "COMMIT;",
+      );
+      expect(() => migrateDatabase(database, directory)).toThrow(DatabaseError);
+      expect(database.query("SELECT * FROM sqlite_master ORDER BY name").all()).toEqual(schema);
+      if (initialized) {
+        expect(database.query("SELECT * FROM schema_migrations").all()).toEqual(ledger);
+        expect(database.query("SELECT * FROM r0_probe").all()).toEqual([
+          { id: 1, value: "fixture-persisted-value" },
+        ]);
+      }
+    },
+  );
+
+  test.each(["version", "name", "checksum"])(
+    "rejects altered applied ledger %s without rewriting it",
+    (field) => {
+      addMigration("0001_probe.sql");
+      migrateDatabase(database, directory);
+      database.run(`UPDATE schema_migrations SET ${field}=?`, [
+        field === "version" ? 2 : "changed",
+      ]);
+      const ledger = database.query("SELECT * FROM schema_migrations").all();
+      expect(() => migrateDatabase(database, directory)).toThrow(DatabaseError);
+      expect(database.query("SELECT * FROM schema_migrations").all()).toEqual(ledger);
+      expect(database.query("SELECT * FROM r0_probe").all()).toEqual([
+        { id: 1, value: "fixture-persisted-value" },
+      ]);
+    },
+  );
+
+  for (const initialized of [false, true]) {
+    test.each([
+      "COMMIT",
+      "/* boundary */ cOmMiT TRANSACTION",
+      "END TRANSACTION",
+      "BEGIN IMMEDIATE",
+      "ROLLBACK",
+      "SAVEPOINT probe",
+      "RELEASE probe",
+      "VACUUM",
+      "PRAGMA foreign_keys=OFF",
+      "PRAGMA main.journal_mode=OFF",
+      "EXPLAIN PRAGMA writable_schema=ON",
+      "ATTACH ':memory:' AS other",
+      "DETACH other",
+      "CREATE TRIGGER probe AFTER INSERT ON r0_probe BEGIN SELECT 1; END",
+      "SELECT 1;\0 COMMIT",
+      "SELECT 'unclosed",
+      "SELECT 1; /* unclosed",
+    ])(
+      `rejects unsafe SQL preserving schema/data/ledger (initialized=${initialized}): %s`,
+      (sql) => {
+        if (initialized) {
+          addMigration("0001_probe.sql");
+          migrateDatabase(database, directory);
+        }
+        const schema = database.query("SELECT * FROM sqlite_master ORDER BY name").all();
+        const ledger = initialized ? database.query("SELECT * FROM schema_migrations").all() : [];
+        writeFileSync(
+          join(directory, initialized ? "0002_unsafe.sql" : "0001_unsafe.sql"),
+          `CREATE TABLE partial(id); INSERT INTO partial VALUES(1); ${sql};`,
+        );
+        expect(() => migrateDatabase(database, directory)).toThrow(DatabaseError);
+        expect(database.query("SELECT * FROM sqlite_master ORDER BY name").all()).toEqual(schema);
+        if (initialized) {
+          expect(database.query("SELECT * FROM schema_migrations").all()).toEqual(ledger);
+          expect(database.query("SELECT * FROM r0_probe").all()).toEqual([
+            { id: 1, value: "fixture-persisted-value" },
+          ]);
+        }
+        expect(database.query("PRAGMA foreign_keys").get()).toEqual({ foreign_keys: 1 });
+        expect(database.query("PRAGMA journal_mode").get()).toEqual({ journal_mode: "wal" });
+      },
+    );
+  }
+
+  test("quoted control words, semicolons, escaped quotes and comments are ordinary SQL data", () => {
+    writeFileSync(
+      join(directory, "0001_lexical.sql"),
+      `
+      -- COMMIT;\n /* PRAGMA; */ CREATE TABLE "commit;" ([pragma;] TEXT, \`rollback;\` TEXT);
+      INSERT INTO "commit;" VALUES ('it''s; COMMIT; -- /*', 'VACUUM;');
+      SELECT CASE WHEN 1 THEN 'END' END;
+    `,
+    );
+    expect(migrateDatabase(database, directory)).toBe(1);
+    expect(database.query('SELECT * FROM "commit;"').all()).toEqual([
+      { "pragma;": "it's; COMMIT; -- /*", "rollback;": "VACUUM;" },
+    ]);
   });
 
   test.each(["invalid.sql", "0000_zero.sql", "0001_Uppercase.sql"])(
