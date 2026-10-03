@@ -41,6 +41,73 @@ function interrupted(state: "uploading" | "sending" | "running" | "cancel_reques
 }
 
 describe("R3 startup reconciliation", () => {
+  test.each([
+    ["failed", false],
+    ["timeout", false],
+    ["failed", true],
+    ["timeout", true],
+  ] as const)(
+    "cancel_requested restart with %s evidence and foreign correlation=%s respects one-slot capacity",
+    async (state, foreign) => {
+      interrupted("cancel_requested");
+      f.store.accept(
+        request("same", "2", "alias"),
+        { text: "same remote successor", attachments: [] },
+        3,
+      );
+      f.store.accept(
+        request("independent", "3", "other"),
+        { text: "independent successor", attachments: [] },
+        3,
+      );
+      f.reopen();
+      class Observed extends FakeChatProvider {
+        override async inspectRequest(
+          reference: ProviderRequestReference,
+        ): Promise<ProviderObservation> {
+          const identity = {
+            ...reference,
+            providerRequestId: foreign ? "foreign" : reference.providerRequestId,
+          };
+          return state === "failed"
+            ? { ...identity, state, code: "GENERATION_FAILED" }
+            : { ...identity, state };
+        }
+      }
+      const { service, provider } = setup(
+        new Observed({
+          capabilities: { maxConcurrentConversations: 1, cancellation: true, fileUpload: true },
+        }),
+      );
+      await service.start();
+      await service.waitForIdle();
+      expect(f.requests.get("r1")).toMatchObject({
+        state: foreign ? "unknown" : state,
+        submittedAt: later,
+        providerRequestId: "fake-r1",
+      });
+      expect(f.requests.get("same")?.state).toBe(foreign ? "queued" : "completed");
+      expect(f.requests.get("independent")?.state).toBe(foreign ? "queued" : "completed");
+      expect(provider.sendCalls).toEqual(foreign ? [] : ["same", "independent"]);
+      expect(f.requests.listAttachments("r1")).toEqual([]);
+      expect(f.database.query("SELECT * FROM request_inputs WHERE request_id='r1'").all()).toEqual(
+        [],
+      );
+      expect(f.updates.get("1")?.requestId).toBe("r1");
+      await service.shutdown();
+      f.reopen();
+      const next = setup(
+        new FakeChatProvider({
+          capabilities: { maxConcurrentConversations: 1, cancellation: true, fileUpload: true },
+        }),
+      );
+      await next.service.start();
+      await next.service.waitForIdle();
+      expect(next.provider.sendCalls).toEqual([]);
+      await next.service.shutdown();
+    },
+  );
+
   test.each([1, 2])(
     "recovered uncertain canonical key consumes one of %s provider slots across aliases",
     async (maxConcurrentConversations) => {

@@ -166,8 +166,9 @@ R2's compound acceptance transaction coordinates these primitives with durable i
 
 Request transitions retain `startedAt` separately from confirmed `submittedAt`.
 `sending -> failed` requires `SEND_FAILED_PRE_SUBMIT`; ambiguous submission can become
-`unknown`, which has no replay transition. Cancellation races can settle as completed,
-cancelled or unknown. Reopening storage preserves states without provider reconciliation.
+`unknown`, which has no replay transition. Cancellation can settle as completed,
+cancelled, failed, timeout or unknown according to provider evidence. Reopening storage
+preserves states without provider reconciliation.
 Only normalized failure codes are stored in R1; optional free-form redacted details from
 the full architecture are deferred until a trusted error mapper exists.
 

@@ -36,6 +36,8 @@ export type FakeScenario = Readonly<{
     | "timeout"
     | "cancellation_success"
     | "cancellation_completion_race"
+    | "cancellation_generation_failure"
+    | "cancellation_generation_timeout"
     | "provider_unavailable"
     | "authentication_required";
   text?: string;
@@ -218,6 +220,14 @@ export class FakeChatProvider implements ChatProvider {
     if (operation.observation.state === "running") {
       if (operation.scenario.kind === "cancellation_completion_race")
         this.complete(reference.clientRequestId, operation.scenario.text ?? "completion won");
+      else if (operation.scenario.kind === "cancellation_generation_failure")
+        this.finish(reference.clientRequestId, {
+          ...operation.submission,
+          state: "failed",
+          code: "GENERATION_FAILED",
+        });
+      else if (operation.scenario.kind === "cancellation_generation_timeout")
+        this.finish(reference.clientRequestId, { ...operation.submission, state: "timeout" });
       else this.finish(reference.clientRequestId, { ...operation.submission, state: "cancelled" });
     }
     const observation = operation.observation;

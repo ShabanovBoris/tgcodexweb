@@ -276,7 +276,14 @@ Temporary local copies are removed after successful processing or by bounded TTL
 
 Given a request is actively generating and provider cancellation is supported,
 when `/stop` is invoked for that conversation,
-then cancellation is requested and the final local state becomes `CANCELLED`, `COMPLETED`, or `UNKNOWN` based on provider evidence.
+then cancellation is requested and the final local state reflects correlated provider evidence:
+`CANCELLED` for confirmed cancellation, `COMPLETED` when completion wins the race,
+`FAILED` or `TIMEOUT` when generation is proven to have ended that way, and `UNKNOWN`
+when a terminal outcome cannot be proven.
+
+Requesting cancellation does not override a known generation outcome. Proven terminal
+failure/timeout releases the canonical key and provider capacity after all active mutations
+settle; an observer timeout or uncertain cancellation does not.
 
 ## AC-H02 — Stop with nothing running
 

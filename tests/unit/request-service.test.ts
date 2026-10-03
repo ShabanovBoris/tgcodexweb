@@ -419,6 +419,135 @@ describe("R3 request lifecycle", () => {
 });
 
 describe("R3 cancellation and shutdown", () => {
+  test.each([
+    ["failed", "terminal"],
+    ["failed", "unknown"],
+    ["timeout", "terminal"],
+    ["timeout", "unknown"],
+  ] as const)(
+    "AC-H01 proven %s with %s observation releases one-slot capacity and preserves successors",
+    async (state, observation) => {
+      const observing = new FakeBarrier();
+      class ObservedProvider extends FakeChatProvider {
+        override async awaitCompletion(
+          input: Readonly<{ submission: ProviderSubmission; signal: AbortSignal }>,
+        ): Promise<ProviderOutcome> {
+          if (input.submission.clientRequestId !== "r1" || observation === "terminal")
+            return super.awaitCompletion(input);
+          observing.release();
+          if (!input.signal.aborted)
+            await new Promise<void>((resolve) =>
+              input.signal.addEventListener("abort", () => resolve(), { once: true }),
+            );
+          return {
+            conversationId: input.submission.conversationId,
+            clientRequestId: "r1",
+            state: "unknown",
+            code: "SUBMISSION_STATE_UNKNOWN",
+          };
+        }
+      }
+      const provider = new ObservedProvider({
+        capabilities: { maxConcurrentConversations: 1, cancellation: true, fileUpload: true },
+      });
+      const { service } = setup(provider);
+      const cancelGate = new FakeBarrier();
+      provider.plan("r1", {
+        kind:
+          state === "failed"
+            ? "cancellation_generation_failure"
+            : "cancellation_generation_timeout",
+        cancelGate,
+      });
+      await service.start();
+      service.accept(request(), { text: "first", attachments: [attachment()] });
+      service.accept(request("same", "2", "alias"), {
+        text: "same remote successor",
+        attachments: [],
+      });
+      service.accept(request("independent", "3", "other"), {
+        text: "independent successor",
+        attachments: [],
+      });
+      await (observation === "terminal" ? provider.waiting("r1") : observing.promise);
+      expect(service.stop("remote").kind).toBe("requested");
+      expect(service.stop("remote").kind).toBe("already_requested");
+      await provider.cancelling("r1");
+      expect(f.requests.get("r1")?.state).toBe("cancel_requested");
+      expect(provider.sendCalls).toEqual(["r1"]);
+      cancelGate.release();
+      await service.waitForIdle();
+      expect(f.requests.get("r1")).toMatchObject({
+        state,
+        submittedAt: later,
+        providerRequestId: "fake-r1",
+      });
+      expect(f.requests.get("r1")?.failureCode).toBe(
+        state === "failed" ? "GENERATION_FAILED" : undefined,
+      );
+      expect(f.requests.get("same")?.state).toBe("completed");
+      expect(f.requests.get("independent")?.state).toBe("completed");
+      expect(provider.sendCalls).toEqual(["r1", "same", "independent"]);
+      expect(provider.cancelCalls).toEqual(["r1"]);
+      expect(f.requests.listAttachments("r1")).toEqual([]);
+      expect(f.database.query("SELECT * FROM request_inputs WHERE request_id='r1'").all()).toEqual(
+        [],
+      );
+      await service.shutdown();
+      f.reopen();
+      expect(f.requests.get("r1")?.state).toBe(state);
+      expect(f.updates.get("1")?.requestId).toBe("r1");
+    },
+  );
+
+  test.each(["failed", "timeout"] as const)(
+    "foreign %s cancellation evidence cannot release one-slot capacity",
+    async (state) => {
+      const observing = new FakeBarrier();
+      class ForeignProvider extends FakeChatProvider {
+        override async awaitCompletion(
+          input: Readonly<{ submission: ProviderSubmission; signal: AbortSignal }>,
+        ): Promise<ProviderOutcome> {
+          observing.release();
+          if (!input.signal.aborted)
+            await new Promise<void>((resolve) =>
+              input.signal.addEventListener("abort", () => resolve(), { once: true }),
+            );
+          return {
+            conversationId: input.submission.conversationId,
+            clientRequestId: input.submission.clientRequestId,
+            state: "unknown",
+            code: "SUBMISSION_STATE_UNKNOWN",
+          };
+        }
+        override async cancel(reference: ProviderRequestReference): Promise<ProviderCancelResult> {
+          const identity = { ...reference, providerRequestId: "foreign" };
+          return state === "failed"
+            ? { ...identity, state, code: "GENERATION_FAILED" }
+            : { ...identity, state };
+        }
+      }
+      const provider = new ForeignProvider({
+        capabilities: { maxConcurrentConversations: 1, cancellation: true, fileUpload: true },
+      });
+      const { service } = setup(provider);
+      provider.plan("r1", { kind: "slow" });
+      await service.start();
+      service.accept(request(), { text: "first", attachments: [] });
+      service.accept(request("independent", "2", "other"), {
+        text: "independent",
+        attachments: [],
+      });
+      await observing.promise;
+      service.stop("remote");
+      await service.waitForIdle();
+      expect(f.requests.get("r1")?.state).toBe("unknown");
+      expect(f.requests.get("independent")?.state).toBe("queued");
+      expect(provider.sendCalls).toEqual(["r1"]);
+      await service.shutdown();
+    },
+  );
+
   test("in-flight send holds its key; stop cannot target an unconfirmed submission", async () => {
     const { service, provider } = setup();
     const sendGate = new FakeBarrier();

@@ -7,6 +7,42 @@ import {
 import { FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
 
 describe("R3 provider contract", () => {
+  test.each(["failed", "timeout"] as const)(
+    "cancellation can observe proven generation %s without ambiguous evidence",
+    async (state) => {
+      const provider = new FakeChatProvider();
+      provider.plan("r", {
+        kind:
+          state === "failed"
+            ? "cancellation_generation_failure"
+            : "cancellation_generation_timeout",
+      });
+      const submission = await provider.send({
+        conversationId: "remote",
+        clientRequestId: "r",
+        text: "synthetic",
+        attachments: [],
+      });
+      if (submission.state !== "submitted") throw new Error("Expected synthetic submission");
+      const completion = provider.awaitCompletion({
+        submission,
+        signal: new AbortController().signal,
+      });
+      await provider.waiting("r");
+      expect((await provider.cancel(submission)).state).toBe(state);
+      expect((await completion).state).toBe(state);
+      expect((await provider.inspectRequest(submission)).state).toBe(state);
+      expect(provider.cancelCalls).toEqual(["r"]);
+      const next = await provider.send({
+        conversationId: "remote",
+        clientRequestId: "next",
+        text: "next",
+        attachments: [],
+      });
+      expect(next.state).toBe("submitted");
+    },
+  );
+
   test("health and inspection are read-only; create returns an exact opaque canonical identity", async () => {
     const provider = new FakeChatProvider({ conversations: ["Case/Id", "case/Id"] });
     expect((await provider.health()).state).toBe("ready");

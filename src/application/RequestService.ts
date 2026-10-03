@@ -277,15 +277,10 @@ export class RequestService {
   }
 
   private async settle(id: string, evidence: ProviderOutcome): Promise<void> {
-    const current = this.dependencies.requests.get(id) as Request;
-    const state =
-      current.state === "cancel_requested" && !["completed", "cancelled"].includes(evidence.state)
-        ? "unknown"
-        : evidence.state;
     const request = this.dependencies.requests.transition(id, {
-      state,
+      state: evidence.state,
       at: this.dependencies.now(),
-      failureCode: state === "failed" ? "GENERATION_FAILED" : undefined,
+      failureCode: evidence.state === "failed" ? evidence.code : undefined,
     });
     await this.deliver({
       request,

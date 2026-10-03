@@ -52,6 +52,8 @@ const edges = new Set([
   "running:unknown",
   "cancel_requested:cancelled",
   "cancel_requested:completed",
+  "cancel_requested:failed",
+  "cancel_requested:timeout",
   "cancel_requested:unknown",
 ]);
 

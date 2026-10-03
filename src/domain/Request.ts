@@ -29,7 +29,7 @@ export const requestTransitions: Readonly<Record<RequestState, readonly RequestS
   uploading: ["sending", "failed", "unknown"],
   sending: ["running", "failed", "unknown"],
   running: ["completed", "failed", "cancel_requested", "cancelled", "timeout", "unknown"],
-  cancel_requested: ["cancelled", "completed", "unknown"],
+  cancel_requested: ["cancelled", "completed", "failed", "timeout", "unknown"],
   completed: [],
   failed: [],
   cancelled: [],

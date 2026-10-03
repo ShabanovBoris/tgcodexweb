@@ -308,6 +308,7 @@ CREATED/QUEUED -> FAILED
 UPLOADING      -> FAILED | UNKNOWN
 SENDING        -> FAILED | UNKNOWN
 RUNNING        -> FAILED | TIMEOUT | CANCELLED | UNKNOWN
+CANCEL_REQUESTED -> COMPLETED | CANCELLED | FAILED | TIMEOUT | UNKNOWN
 ```
 
 A failure during `SENDING` is retryable automatically only when the provider can prove that submission did not occur.
@@ -549,7 +550,7 @@ Suggested reconciliation:
 - `UPLOADING`: cleanup temporary state and retry according to attachment policy if submission did not begin;
 - `SENDING`: mark `UNKNOWN` unless provider can prove no submission;
 - `RUNNING`: query provider if correlation is reliable; otherwise mark `UNKNOWN`;
-- `CANCEL_REQUESTED`: reconcile to `CANCELLED`, `COMPLETED`, or `UNKNOWN` based on evidence.
+- `CANCEL_REQUESTED`: reconcile to `CANCELLED`, `COMPLETED`, `FAILED`, `TIMEOUT`, or `UNKNOWN` based on evidence.
 
 No automatic replay from `UNKNOWN`.
 
@@ -581,6 +582,12 @@ capability, and persists `cancel_requested` before the cancellation call. Repeat
 shares that operation. The executor joins cancellation and completion before releasing
 ownership; confirmed completion wins their race. A cancellation acknowledgement alone
 does not settle a request. Queued successors remain durable.
+
+The approved R3 correction (2026-10-03, option A) permits `cancel_requested -> failed/timeout`
+when correlated terminal evidence proves that generation ended. A stop request records
+intent; it cannot turn a known failure/timeout into capacity-reserving ambiguity. The same
+rule applies during restart inspection. Foreign evidence and observer deadlines still
+become UNKNOWN and keep their key/capacity. No migration or UNKNOWN replay path is added.
 
 Final result delivery occurs only after durable settlement/retention. Delivery failure is
 reported separately in service diagnostics and cannot resubmit or reclassify completion.
