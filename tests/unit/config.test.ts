@@ -68,6 +68,16 @@ describe("configuration", () => {
     expect(() => loadConfig({ ...environment, LOG_CONTENT: "yes" })).toThrow(ConfigError);
   });
 
+  test("generation deadline rejects timer overflow instead of becoming a 1ms timeout", () => {
+    expect(
+      loadConfig({ ...environment, GENERATION_TIMEOUT_MS: "2147483647" }).requests
+        .generationTimeoutMs,
+    ).toBe(2147483647);
+    expect(() => loadConfig({ ...environment, GENERATION_TIMEOUT_MS: "2147483648" })).toThrow(
+      ConfigError,
+    );
+  });
+
   test("rejects unsupported provider and log level", () => {
     expect(() => loadConfig({ ...environment, PROVIDER_TYPE: "api" })).toThrow(ConfigError);
     expect(() => loadConfig({ ...environment, LOG_LEVEL: "verbose" })).toThrow(ConfigError);

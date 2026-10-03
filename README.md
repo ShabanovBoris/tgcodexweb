@@ -1,4 +1,4 @@
-# TG WebGPT Gateway — R2 idempotency and keyed queue
+# TG WebGPT Gateway — R3 provider contract and offline lifecycle
 
 This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
@@ -11,9 +11,11 @@ Read order:
 5. `AGENTS.md`
 6. `GOAL.md`
 
-The repository includes the R0 shell, R1 domain/persistence and R2 durable acceptance
-and keyed queue. R3 and later phases are not implemented. See
-[R1 evidence](docs/verification/R1.md) and [R2 evidence](docs/verification/R2.md).
+The repository includes the R0 shell, R1 domain/persistence, R2 durable acceptance
+and keyed queue, and R3 application-owned provider contract, deterministic fake and
+request lifecycle service. R4 and later phases are not implemented. See
+[R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md) and
+[R3 evidence](docs/verification/R3.md).
 
 ## Prerequisites and install
 
@@ -81,10 +83,11 @@ creating the database. Errors list field names and fixed reasons, never input va
 | `LOG_LEVEL` | `info`; also accepts `debug`, `warn`, `error` |
 | `LOG_CONTENT` | `false`; Boolean values must be `true` or `false` |
 
-All numeric limits must be positive safe integers. Relative paths resolve from the
-working directory. R2 consumes the pending queue limit when a queue runtime is composed;
-the one-shot bootstrap does not run a queue. Generation/attachment limits are for future
-phases. `LOG_CONTENT` is validated,
+All numeric limits must be positive safe integers; `GENERATION_TIMEOUT_MS` additionally
+must not exceed 2147483647 (the runtime timer limit). Relative paths resolve from the
+working directory. A composed R3 `RequestService` consumes the pending queue and generation
+timeout limits; the one-shot bootstrap does not run it. Attachment limits are for R5.
+`LOG_CONTENT` is validated,
 but ordinary R0 logs have no prompt/response fields even when it is `true`.
 
 ## Bootstrap and database
@@ -137,8 +140,7 @@ bun run verify
 `format` explicitly writes formatting changes. `verify` does not change source files.
 Biome checks TypeScript/JSON; Markdown, TOML and SQL are outside its formatter scope.
 
-R2 includes no Telegram transport, `ChatProvider`, browser integration,
-or doctor/status implementation. Compatibility
+R3 includes no Telegram transport, browser integration or doctor/status CLI. Compatibility
 with arbitrary existing ChatGPT conversations remains unproven and must be resolved
 before real provider integration.
 
@@ -182,8 +184,8 @@ the exact remote ID, counts created/queued work and excludes active processing. 
 queue rejects without marking that update processed.
 
 `RequestQueue` owns admission/dispatch and uses an injected async executor. This is a
-single runtime with explicit pending/global concurrency limits; R3 will supply the real
-request-service callback and derive concurrency from provider capability. The callback
+single runtime with explicit pending/global concurrency limits; R3 supplies the
+request-service callback and derives concurrency from provider capability. The callback
 must cover the entire remote mutation and persist the correct terminal evidence before
 it resolves. Test executors are deterministic and make no live network calls.
 
@@ -208,5 +210,31 @@ external evidence. This is SQLite row deletion, not secure erasure of WAL or
 backups. Actual temporary-file cleanup belongs to R5.
 
 Shutdown rejects new admissions, stops dispatch, waits already active callbacks, and
-retains pending input for restart. A crashed active callback remains blocked; R3/R7 own
-provider reconciliation. `start` remains the local one-shot bootstrap described above.
+retains pending input for restart. A crashed active callback remains blocked until R3
+reconciliation. `start` remains the local one-shot bootstrap described above.
+
+## R3 provider and request lifecycle
+
+`RequestService` composes the existing queue/repositories with the application-owned
+`ChatProvider`. Tests inject `FakeChatProvider`, a clock, result delivery and manual
+barriers. Fake scenarios cover success, slow generation, pre-submit failure, ambiguous
+send, failure after confirmed submission, timeout, cancellation, completion races,
+provider unavailability and authentication requirements. No live sessions are used.
+
+Evidence is validated and correlated to the exact request/remote identity. Partial text,
+an exception or an acknowledged stop cannot prove completion. A local generation timeout
+aborts observation, not remote generation: without terminal evidence it becomes UNKNOWN.
+Unknown keys continue to block successors and reserve provider concurrency capacity.
+Cancellation and completion are joined before the queue key is released. Result-delivery
+failure cannot change a provider-completed request or trigger another prompt.
+
+Startup resumes only fully evidenced queued input. It reconciles interrupted work through
+read-only inspection, accepts correlated terminal evidence and otherwise records UNKNOWN.
+There is no automatic retry, replay from UNKNOWN or resumption of interrupted observation.
+Incomplete created/queued input remains blocked. Terminal settlement uses unchanged R2
+retention; migrations 0001–0004 are unchanged. Callback delivery diagnostics are currently
+in-memory; durable delivery recovery and manual UNKNOWN resolution remain R7 work.
+
+The provider port passes only generated attachment storage keys and display metadata.
+R5 will resolve/download real files, and R6 will implement the actual browser adapter.
+This is offline lifecycle evidence, not full Telegram/ChatGPT acceptance.

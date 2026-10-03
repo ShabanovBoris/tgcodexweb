@@ -40,6 +40,7 @@ const edges = new Set([
   "queued:failed",
   "uploading:sending",
   "uploading:failed",
+  "uploading:unknown",
   "sending:running",
   "sending:failed",
   "sending:unknown",

@@ -226,39 +226,31 @@ Store only operational metadata required for processing. Do not make the local c
 
 ## 6. Provider port
 
-The application owns the interface.
+The application owns the interface. R3 defines the concrete types and evidence schemas in
+[`src/ports/ChatProvider.ts`](src/ports/ChatProvider.ts).
 
 Conceptual contract:
 
 ```ts
 interface ChatProvider {
+  readonly capabilities: ProviderCapabilities;
   health(): Promise<ProviderHealth>;
 
   createConversation(input?: {
     titleHint?: string;
   }): Promise<ProviderConversation>;
 
-  inspectConversation(
-    reference: ProviderConversationReference,
-  ): Promise<ProviderConversation>;
+  inspectConversation(reference: string): Promise<ProviderConversation>;
 
-  send(input: {
-    conversationId: string;
-    text?: string;
-    attachments?: ProviderAttachmentInput[];
-    clientRequestId: string;
-  }): Promise<ProviderSubmission>;
+  send(input: ProviderSendInput): Promise<ProviderSendResult>;
 
   awaitCompletion(input: {
-    conversationId: string;
     submission: ProviderSubmission;
-    signal?: AbortSignal;
-  }): Promise<ProviderAssistantMessage>;
+    signal: AbortSignal;
+  }): Promise<ProviderOutcome>;
 
-  cancel(input: {
-    conversationId: string;
-    submission?: ProviderSubmission;
-  }): Promise<ProviderCancelResult>;
+  cancel(reference: ProviderRequestReference): Promise<ProviderCancelResult>;
+  inspectRequest(reference: ProviderRequestReference): Promise<ProviderObservation>;
 }
 ```
 
@@ -279,6 +271,21 @@ The adapter must expose enough information to distinguish:
 
 The application must never infer "not submitted" merely because a response was not received.
 
+R3 validates discriminated evidence and its exact client request/conversation identity,
+including the saved provider request ID when present. Adapters must establish actual
+correlation before returning evidence; echoing an ID beside an unrelated latest response
+is not correlation. Malformed/mismatched evidence and thrown send/wait/cancel errors are
+ambiguous. Only `not_submitted` proves pre-submit failure; R3 performs no automatic retries.
+
+`completed`, `cancelled`, `failed` and `timeout` prove that remote generation has ended.
+An observer deadline without this proof becomes `unknown` (reason `GENERATION_TIMEOUT`),
+retaining the remote key and provider capacity. Partial text is a `running` observation,
+never completion. Aborting a read-only wait detaches its local resources; it does not cancel
+remote generation. An adapter must settle the aborted wait and must not detach mutations
+beyond the lifetime of `send`/`cancel`. These are obligations for the future real adapter.
+Configured generation deadlines are capped at the runtime timer maximum of 2147483647ms;
+larger values are rejected rather than being silently converted by Bun into 1ms.
+
 ---
 
 ## 8. Request lifecycle
@@ -298,12 +305,17 @@ Failure paths:
 
 ```text
 CREATED/QUEUED -> FAILED
-UPLOADING      -> FAILED
+UPLOADING      -> FAILED | UNKNOWN
 SENDING        -> FAILED | UNKNOWN
 RUNNING        -> FAILED | TIMEOUT | CANCELLED | UNKNOWN
 ```
 
 A failure during `SENDING` is retryable automatically only when the provider can prove that submission did not occur.
+
+R3 adds `uploading -> unknown` for interrupted work without reliable evidence; no artificial
+send transition is needed to represent ambiguity. Before invoking the combined upload/send
+port, RequestService validates generated attachment references and persists `sending`.
+No actual download, upload or filesystem resolution is implemented by the fake.
 
 ---
 
@@ -344,7 +356,7 @@ provider/profile. Local mapping IDs and aliases are not serialization keys: two
 mappings may reference one remote conversation (AC-E05). R1 exposes the exact opaque
 `providerConversationId` as that key. R2's `RequestQueue` executes accepted work through
 an injected callback; the callback spans the full mutation and persists its final
-lifecycle evidence before resolving. The actual provider contract belongs to R3.
+lifecycle evidence before resolving. R3 supplies that callback through `RequestService`.
 
 ```text
 conv-A: req-1 RUNNING -> req-2 QUEUED -> req-3 QUEUED
@@ -369,11 +381,11 @@ If the concrete provider uses a single browser page that cannot safely execute m
 
 ## 11. Concurrency capability
 
-Provider health/capabilities should expose something equivalent to:
+R3 provider capabilities are immutable for a service lifetime:
 
 ```ts
 type ProviderCapabilities = {
-  concurrentConversations: boolean;
+  maxConcurrentConversations: number; // positive safe integer; 1 serializes all keys
   cancellation: boolean;
   fileUpload: boolean;
 };
@@ -382,8 +394,12 @@ type ProviderCapabilities = {
 The scheduler respects these capabilities.
 
 R2 receives a positive `maxConcurrentConversations` limit explicitly; 1 serializes
-all keys, larger limits permit independent keys to run concurrently. R3 will derive
-that limit from provider capabilities. There is one queue runtime for the MVP database;
+all keys, larger limits permit independent keys to run concurrently. R3 derives
+that limit from provider capabilities and enables `reserveUncertainConversations`:
+distinct unresolved remote keys consume capacity alongside active callbacks. A single-slot
+provider cannot start another conversation while an uncertain generation may still exist.
+Aliases count once. Bare R2 executor queues retain their explicit limit semantics.
+There is one queue runtime for the MVP database;
 multi-process scheduling/notifications are not implemented.
 
 Pending capacity counts `created`/`queued` requests across all mappings for the exact
@@ -537,7 +553,7 @@ Suggested reconciliation:
 
 No automatic replay from `UNKNOWN`.
 
-R2 performs only safe queue reconstruction, before R3 reconciliation exists. A consistent
+The R2 queue layer performs only safe queue reconstruction. A consistent
 read snapshot checks queued lifecycle, durable acceptance ownership, input, exact ordered attachment set and the
 originating dedup marker. Missing/invalid input or incomplete acceptance evidence is
 surfaced as `input_unavailable`; it is never replaced with an empty prompt. Legacy
@@ -550,7 +566,26 @@ rechecks key blockers and the first accepted request under `BEGIN IMMEDIATE`, th
 persists `uploading` (attachments) or `sending` (text only) before invoking the callback.
 Executor rejection does not imply a pre-submit failure or schedule a retry. An unsettled
 durable lifecycle keeps the key blocked. Request failure classification, provider
-evidence provenance and resolution of these blocks belong to R3/R7.
+evidence provenance and resolution of these blocks are handled by R3 as follows.
+
+R3 reconciliation runs before queue admission/dispatch. It only performs read-only provider
+inspection. Correlated terminal evidence settles interrupted work; a recovered submission
+timestamp records local evidence observation, not an invented upstream timestamp. Proven
+not-submitted uploading/sending work becomes failed without replay. Otherwise interrupted
+uploading/sending/running/cancel-requested becomes UNKNOWN. Even correlated still-running
+work is conservatively UNKNOWN; observation resumption is deferred. Existing UNKNOWN and
+incomplete created/queued input remain blocked without reclassification or replay.
+
+`stop` addresses the active canonical key, requires confirmed submission and cancellation
+capability, and persists `cancel_requested` before the cancellation call. Repeated stop
+shares that operation. The executor joins cancellation and completion before releasing
+ownership; confirmed completion wins their race. A cancellation acknowledgement alone
+does not settle a request. Queued successors remain durable.
+
+Final result delivery occurs only after durable settlement/retention. Delivery failure is
+reported separately in service diagnostics and cannot resubmit or reclassify completion.
+Those delivery diagnostics are in-memory in R3; durable delivery retries and operator
+resolution of UNKNOWN belong to R7. Shutdown waits active effects and startup reconciliation.
 
 ---
 
@@ -688,6 +723,7 @@ UPLOAD_FAILED
 SEND_FAILED_PRE_SUBMIT
 SUBMISSION_STATE_UNKNOWN
 GENERATION_TIMEOUT
+GENERATION_FAILED
 GENERATION_CANCELLED
 TELEGRAM_DELIVERY_FAILED
 DATABASE_ERROR
