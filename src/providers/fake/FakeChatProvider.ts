@@ -5,12 +5,12 @@ import {
   type ProviderConversation,
   type ProviderHealth,
   type ProviderObservation,
+  ProviderOperationError,
   type ProviderOutcome,
   type ProviderRequestReference,
   type ProviderSendInput,
   type ProviderSendResult,
   type ProviderSubmission,
-  ProviderOperationError,
   providerCapabilitiesSchema,
 } from "../../ports/ChatProvider";
 
@@ -67,11 +67,13 @@ export class FakeChatProvider implements ChatProvider {
   private readonly active = new Map<string, string>();
   private readonly signals = new Map<string, FakeBarrier>();
   private nextConversation = 1;
+  private readonly conversationIdPrefix: string;
 
   constructor(
     options: Readonly<{
       capabilities?: ProviderCapabilities;
       conversations?: readonly string[];
+      conversationIdPrefix?: string;
     }> = {},
   ) {
     this.capabilities = providerCapabilitiesSchema.parse(
@@ -82,6 +84,7 @@ export class FakeChatProvider implements ChatProvider {
       },
     );
     this.conversations = new Set(options.conversations ?? ["remote", "Remote"]);
+    this.conversationIdPrefix = options.conversationIdPrefix ?? "fake-conversation";
   }
 
   plan(requestId: string, scenario: FakeScenario): void {
@@ -103,7 +106,7 @@ export class FakeChatProvider implements ChatProvider {
     this.requireReady();
     let id: string;
     do {
-      id = `fake-conversation-${this.nextConversation++}`;
+      id = `${this.conversationIdPrefix}-${this.nextConversation++}`;
     } while (this.conversations.has(id));
     this.conversations.add(id);
     return { id };

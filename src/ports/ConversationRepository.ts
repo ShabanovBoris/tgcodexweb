@@ -7,7 +7,7 @@ export interface ConversationRepository {
   create(conversation: Conversation): void;
   get(id: string): Conversation | null;
   findByAlias(telegramUserId: string, alias: string): Conversation | null;
-  list(telegramUserId: string): Conversation[];
+  list(telegramUserId: string, options?: Readonly<{ includeArchived?: boolean }>): Conversation[];
   getActive(telegramUserId: string): Conversation | null;
   select(telegramUserId: string, conversationId: string): void;
   // Mutators требуют владельца: global ID не является полномочием менять чужой mapping.
