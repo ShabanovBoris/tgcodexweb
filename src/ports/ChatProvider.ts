@@ -135,6 +135,10 @@ export class ProviderOperationError extends Error {
  * not_submitted proves no prompt crossed the boundary. All thrown send errors are ambiguous.
  * completed/cancelled/failed/timeout prove generation has ended; a local deadline without
  * that evidence is unknown/GENERATION_TIMEOUT. Partial text is only a running observation.
+ * The application joins wait/cancel before choosing an outcome: completed from either
+ * source wins; otherwise awaitCompletion's terminal outcome has priority, and cancel's
+ * terminal evidence is a fallback only when observation is unknown. Different terminal
+ * kinds do not erase their shared proof that generation ended.
  *
  * awaitCompletion and inspectRequest are read-only. Aborting the wait must settle it after
  * detaching its local resources; it neither cancels generation nor proves a terminal outcome.

@@ -589,6 +589,12 @@ intent; it cannot turn a known failure/timeout into capacity-reserving ambiguity
 rule applies during restart inspection. Foreign evidence and observer deadlines still
 become UNKNOWN and keep their key/capacity. No migration or UNKNOWN replay path is added.
 
+For different correlated terminal kinds, the approved source policy (2026-10-03, option 1)
+is: COMPLETED from either source wins; otherwise a terminal `awaitCompletion` observation
+has priority over `cancel`, whose terminal evidence is a fallback when observation is
+UNKNOWN. Conflicting terminal kinds still prove termination and release key/capacity
+after both calls settle. If neither source has valid terminal evidence, UNKNOWN remains.
+
 Final result delivery occurs only after durable settlement/retention. Delivery failure is
 reported separately in service diagnostics and cannot resubmit or reclassify completion.
 Those delivery diagnostics are in-memory in R3; durable delivery retries and operator

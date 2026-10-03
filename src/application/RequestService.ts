@@ -261,9 +261,13 @@ export class RequestService {
   private combine(outcome: ProviderOutcome, cancellation: ProviderCancelResult): ProviderOutcome {
     if (outcome.state === "completed") return outcome;
     if (cancellation.state === "completed") return cancellation;
-    if (cancellation.state === "not_cancelled" || cancellation.state === "unknown") return outcome;
-    if (outcome.state === "unknown" || outcome.state === cancellation.state) return cancellation;
-    return this.unknown(outcome);
+    if (
+      outcome.state === "unknown" &&
+      cancellation.state !== "not_cancelled" &&
+      cancellation.state !== "unknown"
+    )
+      return cancellation;
+    return outcome;
   }
 
   private async failBeforeSend(work: QueueWork, code: string): Promise<void> {

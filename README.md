@@ -228,6 +228,8 @@ aborts observation, not remote generation: without terminal evidence it becomes 
 Unknown keys continue to block successors and reserve provider concurrency capacity.
 Cancellation and completion are joined before the queue key is released. Result-delivery
 failure cannot change a provider-completed request or trigger another prompt.
+When their correlated terminal kinds differ, completed from either source wins; otherwise
+awaitCompletion's terminal outcome has priority and cancel fills an unknown observation.
 
 Startup resumes only fully evidenced queued input. It reconciles interrupted work through
 read-only inspection, accepts correlated terminal evidence and otherwise records UNKNOWN.

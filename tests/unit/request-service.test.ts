@@ -419,6 +419,86 @@ describe("R3 request lifecycle", () => {
 });
 
 describe("R3 cancellation and shutdown", () => {
+  const terminalKinds = ["completed", "failed", "timeout", "cancelled"] as const;
+  test.each(
+    terminalKinds.flatMap((observed) =>
+      terminalKinds.map((cancelled) => [observed, cancelled] as const),
+    ),
+  )(
+    "AC-H01 terminal observation %s and cancellation %s preserve approved source precedence",
+    async (observed, cancelled) => {
+      const evidence = (
+        reference: ProviderRequestReference,
+        state: (typeof terminalKinds)[number],
+        source: string,
+      ): ProviderOutcome => {
+        if (state === "completed")
+          return { ...reference, state, message: { text: `${source} final` } };
+        if (state === "failed") return { ...reference, state, code: "GENERATION_FAILED" };
+        return { ...reference, state };
+      };
+      class TerminalProvider extends FakeChatProvider {
+        override async awaitCompletion(
+          input: Readonly<{ submission: ProviderSubmission; signal: AbortSignal }>,
+        ): Promise<ProviderOutcome> {
+          const result = await super.awaitCompletion(input);
+          return input.submission.clientRequestId === "r1"
+            ? evidence(input.submission, observed, "observation")
+            : result;
+        }
+        override async cancel(reference: ProviderRequestReference): Promise<ProviderCancelResult> {
+          await super.cancel(reference);
+          return evidence(reference, cancelled, "cancellation");
+        }
+      }
+      const provider = new TerminalProvider({
+        capabilities: { maxConcurrentConversations: 1, cancellation: true, fileUpload: true },
+      });
+      const { service, results } = setup(provider);
+      const cancelGate = new FakeBarrier();
+      provider.plan("r1", { kind: "slow", cancelGate });
+      await service.start();
+      service.accept(request(), { text: "first", attachments: [attachment()] });
+      service.accept(request("same", "2", "alias"), {
+        text: "same remote successor",
+        attachments: [],
+      });
+      service.accept(request("independent", "3", "other"), {
+        text: "independent successor",
+        attachments: [],
+      });
+      await provider.waiting("r1");
+      expect(service.stop("remote").kind).toBe("requested");
+      await provider.cancelling("r1");
+      expect(f.requests.get("r1")?.state).toBe("cancel_requested");
+      expect(provider.sendCalls).toEqual(["r1"]);
+      cancelGate.release();
+      await service.waitForIdle();
+      const expected = observed === "completed" || cancelled !== "completed" ? observed : cancelled;
+      expect(f.requests.get("r1")).toMatchObject({
+        state: expected,
+        submittedAt: later,
+        providerRequestId: "fake-r1",
+      });
+      expect(results.find((result) => result.request.id === "r1")?.message?.text).toBe(
+        expected === "completed"
+          ? observed === "completed"
+            ? "observation final"
+            : "cancellation final"
+          : undefined,
+      );
+      expect(f.requests.get("same")?.state).toBe("completed");
+      expect(f.requests.get("independent")?.state).toBe("completed");
+      expect(provider.sendCalls).toEqual(["r1", "same", "independent"]);
+      expect(provider.cancelCalls).toEqual(["r1"]);
+      expect(f.requests.listAttachments("r1")).toEqual([]);
+      expect(f.database.query("SELECT * FROM request_inputs WHERE request_id='r1'").all()).toEqual(
+        [],
+      );
+      await service.shutdown();
+    },
+  );
+
   test.each([
     ["failed", "terminal"],
     ["failed", "unknown"],

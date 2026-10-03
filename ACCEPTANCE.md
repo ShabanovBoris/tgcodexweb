@@ -285,6 +285,11 @@ Requesting cancellation does not override a known generation outcome. Proven ter
 failure/timeout releases the canonical key and provider capacity after all active mutations
 settle; an observer timeout or uncertain cancellation does not.
 
+If the two correlated observations disagree on terminal kind, `COMPLETED` from either
+source wins. Otherwise the terminal outcome from `awaitCompletion` has priority; terminal
+evidence from `cancel` is used only when the completion observation is unknown. Different
+terminal kinds cannot erase their shared proof of termination or retain provider capacity.
+
 ## AC-H02 — Stop with nothing running
 
 When `/stop` is invoked with no active request,
