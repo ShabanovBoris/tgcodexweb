@@ -676,7 +676,8 @@ R4's conservative normalized model retains all source characters, including Mark
 delimiters. It escapes HTML and formats fenced regions with balanced `<pre>` tags; other
 Markdown remains literal. Code blocks stay atomic when they fit. Each chunk has a matching
 plain representation, uses at most 4096 UTF-16 units and preserves surrogate pairs.
-Only an explicit `400 / can't parse entities` rejection retries the rejected chunk once
+Only an explicit HTTP 400 / `ok=false` / error-code 400 / `can't parse entities`
+rejection retries the rejected chunk once
 as plain text; successful earlier chunks are not repeated. Other delivery errors are not
 retried. Progress is auxiliary and cannot delay provider evidence/deadlines; final transport
 delivery joins its progress notifications after durable settlement.

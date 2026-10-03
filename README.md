@@ -143,8 +143,8 @@ Progress messages are queued/generating notifications followed by the durable ou
 Progress delivery cannot delay provider observation. Completed responses preserve their
 source text, escape arbitrary HTML and use balanced `<pre>` blocks for fenced code.
 Other Markdown remains literal. Chunks respect the 4096 character limit conservatively
-using UTF-16 units and do not split surrogate pairs. Only an explicit Telegram parser
-rejection retries that chunk once as plain text. Network errors, rate limits and other
+using UTF-16 units and do not split surrogate pairs. Only an explicit HTTP 400,
+`ok=false`, parser rejection retries that chunk once as plain text. Network errors, rate limits and other
 delivery failures do not retry or call the provider again. Delivery failures remain
 in-memory diagnostics and are shown for their owner by `/status`; durable retry is R7.
 

@@ -109,6 +109,29 @@ test("only explicit 400 parser rejection permits fallback; delivery/429/500 are 
   }
 });
 
+test("contradictory success or HTTP failure cannot prove an unsent parser rejection", async () => {
+  for (const [status, ok] of [
+    [400, true],
+    [500, false],
+  ] as const) {
+    const { api, calls } = mockApi([
+      {
+        status,
+        body: {
+          ok,
+          result: { message_id: 1 },
+          error_code: 400,
+          description: "Bad Request: can't parse entities: fixture",
+        },
+      },
+    ]);
+    await expect(
+      api.sendMessage({ chatId: "123", text: "answer", parseMode: "HTML" }),
+    ).rejects.toThrow("TELEGRAM_DELIVERY_FAILED");
+    expect(calls).toHaveLength(1);
+  }
+});
+
 test("malformed envelopes, unsafe IDs and raw fetch exceptions remain non-ready/safe", async () => {
   for (const body of [
     { ok: true, result: { id: 1, is_bot: false, username: "r4_bot" } },

@@ -128,6 +128,8 @@ export class HttpTelegramApi implements TelegramApi {
         // Only an explicit parser rejection proves that a rich message was not sent.
         if (
           method === "sendMessage" &&
+          !data.ok &&
+          response.status === 400 &&
           data.error_code === 400 &&
           /^Bad Request: can't parse entities(?::|$)/i.test(data.description ?? "")
         )
