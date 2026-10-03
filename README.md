@@ -1,4 +1,4 @@
-# TG WebGPT Gateway — R3 provider contract and offline lifecycle
+# TG WebGPT Gateway — R4 Telegram transport
 
 This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
@@ -13,9 +13,11 @@ Read order:
 
 The repository includes the R0 shell, R1 domain/persistence, R2 durable acceptance
 and keyed queue, and R3 application-owned provider contract, deterministic fake and
-request lifecycle service. R4 and later phases are not implemented. See
+request lifecycle service. R4 adds conversation commands, Telegram HTTP polling,
+allowlist checks, progress, safe response splitting and delivery fallback. R5 and
+later phases are not implemented. See
 [R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md) and
-[R3 evidence](docs/verification/R3.md).
+[R3 evidence](docs/verification/R3.md) and [R4 evidence](docs/verification/R4.md).
 
 ## Prerequisites and install
 
@@ -61,7 +63,7 @@ Automatic `.env` loading is disabled. Explicitly pass the file when needed:
 
 ```sh
 bun --env-file=.env run config:check
-bun --env-file=.env run start
+bun --env-file=.env run bootstrap
 ```
 
 Environment variables are the sole configuration source. Blank optional values use
@@ -86,16 +88,65 @@ creating the database. Errors list field names and fixed reasons, never input va
 All numeric limits must be positive safe integers; `GENERATION_TIMEOUT_MS` additionally
 must not exceed 2147483647 (the runtime timer limit). Relative paths resolve from the
 working directory. A composed R3 `RequestService` consumes the pending queue and generation
-timeout limits; the one-shot bootstrap does not run it. Attachment limits are for R5.
+timeout limits in the R4 runtime; the one-shot bootstrap does not run it. Attachment limits are for R5.
 `LOG_CONTENT` is validated,
 but ordinary R0 logs have no prompt/response fields even when it is `true`.
 
 ## Bootstrap and database
 
-`start` is a **one-shot local bootstrap**, not a running bot. It checks the toolchain,
+`bootstrap` is a **one-shot local bootstrap**, not a running bot. It checks the toolchain,
 validates configuration, initializes/migrates SQLite, logs `bootstrap.complete` and
 closes the connection. Success exits 0; it never reports `READY`. `LOG_LEVEL=warn`
 or `error` suppresses the informational success log.
+
+`start` validates configuration and currently fails with
+`PROVIDER_UNAVAILABLE / adapter_not_implemented`. The real ChatGPT Web adapter is R6;
+this command cannot silently select the fake provider or claim bot readiness.
+
+To explicitly run a development bot against the real Telegram transport and a synthetic
+provider, use your own test bot token and allowlist:
+
+```sh
+bun --env-file=.env run start:fake --private
+```
+
+This command connects to Telegram. It has not been run with live credentials in R4
+verification. `--private` is required: only allowlisted non-bot senders in their matching
+private chat are handled; groups, channels, anonymous senders and other update types are
+silent. The group policy is an open product decision. All automated tests inject an
+offline Telegram API and use FakeChatProvider.
+
+Fake mode displays `FAKE (development)` in `/start` and `/status`. It uses a separate
+database next to `DATABASE_PATH`, with `fake-` prefixed to the basename (default:
+`data/fake-gateway.sqlite`). It never opens the normal database or browser profile.
+Known synthetic mappings, including archived mappings, seed the fake's available IDs;
+new IDs are unique across restarts. It does not simulate persistent remote history or
+real ChatGPT access/authentication. `/add sample remote` attaches a predefined synthetic
+conversation. `/new coding` creates another synthetic conversation.
+
+SIGINT/SIGTERM stop polling/admission and join active request effects before closing
+SQLite. Poll/API failures stop the runtime; automatic reconnect/retry is deferred to R7.
+Polling acknowledges an update after handling it. Durable markers suppress redelivery
+after a lost polling offset. Commands are marked before effects, so interrupted commands
+are not automatically replayed; command crash reconciliation is not implemented.
+
+Available commands are `/start`, `/help`, `/new [alias]`, `/add <alias> <url-or-id>`,
+`/chats`, `/use <alias>`, `/current`, `/rename <old> <new>`, `/remove <alias>`, `/status`
+and `/stop`. New aliases are case-sensitive, 1–64 UTF-16 units, without whitespace or
+control/format characters. The provider verifies `/add` and supplies the opaque canonical
+ID; the transport never derives it from the supplied URL. Ordinary text is preserved
+exactly and targets the selected mapping. Telegram reply metadata does not branch the
+provider conversation. Attachments, including captions that look like commands, are
+rejected without downloads in R4.
+
+Progress messages are queued/generating notifications followed by the durable outcome.
+Progress delivery cannot delay provider observation. Completed responses preserve their
+source text, escape arbitrary HTML and use balanced `<pre>` blocks for fenced code.
+Other Markdown remains literal. Chunks respect the 4096 character limit conservatively
+using UTF-16 units and do not split surrogate pairs. Only an explicit Telegram parser
+rejection retries that chunk once as plain text. Network errors, rate limits and other
+delivery failures do not retry or call the provider again. Delivery failures remain
+in-memory diagnostics and are shown for their owner by `/status`; durable retry is R7.
 
 Database maintenance needs no Telegram credentials:
 
@@ -140,7 +191,7 @@ bun run verify
 `format` explicitly writes formatting changes. `verify` does not change source files.
 Biome checks TypeScript/JSON; Markdown, TOML and SQL are outside its formatter scope.
 
-R3 includes no Telegram transport, browser integration or doctor/status CLI. Compatibility
+R4 includes no real browser integration or doctor/status CLI. Compatibility
 with arbitrary existing ChatGPT conversations remains unproven and must be resolved
 before real provider integration.
 
@@ -212,7 +263,7 @@ backups. Actual temporary-file cleanup belongs to R5.
 
 Shutdown rejects new admissions, stops dispatch, waits already active callbacks, and
 retains pending input for restart. A crashed active callback remains blocked until R3
-reconciliation. `start` remains the local one-shot bootstrap described above.
+reconciliation. `bootstrap` remains the local one-shot maintenance command described above.
 
 ## R3 provider and request lifecycle
 

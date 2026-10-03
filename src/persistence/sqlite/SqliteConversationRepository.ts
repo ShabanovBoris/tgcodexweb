@@ -103,13 +103,13 @@ export class SqliteConversationRepository implements ConversationRepository {
   }
 
   // Публичный список исключает архив, не стирая historical references.
-  list(telegramUserId: string): Conversation[] {
+  list(telegramUserId: string, options?: Readonly<{ includeArchived?: boolean }>): Conversation[] {
     return repositoryOperation(() =>
       this.database
-        .query<ConversationRow, [string]>(
-          `SELECT ${columns} FROM conversations c WHERE c.telegram_user_id=? AND c.archived=0 ORDER BY c.created_at, c.id`,
+        .query<ConversationRow, [string, number]>(
+          `SELECT ${columns} FROM conversations c WHERE c.telegram_user_id=? AND (c.archived=0 OR ?=1) ORDER BY c.created_at, c.id`,
         )
-        .all(telegramUserId)
+        .all(telegramUserId, Number(options?.includeArchived ?? false))
         .map(conversationFromRow),
     );
   }
