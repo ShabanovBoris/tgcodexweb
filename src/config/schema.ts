@@ -55,7 +55,10 @@ export const configSchema = z.object({
       .min(1, { error: "invalid_path" })
       .default("./data/browser-profile"),
   ),
-  GENERATION_TIMEOUT_MS: positiveInteger(600000),
+  // Bun timers above the signed 32-bit limit become 1ms instead of the requested duration.
+  GENERATION_TIMEOUT_MS: positiveInteger(600000).refine((value) => value <= 2_147_483_647, {
+    error: "invalid_generation_timeout",
+  }),
   MAX_PENDING_PER_CONVERSATION: positiveInteger(20),
   ATTACHMENT_TEMP_DIR: z.preprocess(
     blankAsMissing,

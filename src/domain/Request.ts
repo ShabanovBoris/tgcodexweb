@@ -26,10 +26,10 @@ export const terminalStates: readonly RequestState[] = [
 export const requestTransitions: Readonly<Record<RequestState, readonly RequestState[]>> = {
   created: ["queued", "failed"],
   queued: ["uploading", "sending", "failed"],
-  uploading: ["sending", "failed"],
+  uploading: ["sending", "failed", "unknown"],
   sending: ["running", "failed", "unknown"],
   running: ["completed", "failed", "cancel_requested", "cancelled", "timeout", "unknown"],
-  cancel_requested: ["cancelled", "completed", "unknown"],
+  cancel_requested: ["cancelled", "completed", "failed", "timeout", "unknown"],
   completed: [],
   failed: [],
   cancelled: [],
@@ -37,7 +37,7 @@ export const requestTransitions: Readonly<Record<RequestState, readonly RequestS
   unknown: [],
 };
 
-// startedAt фиксирует локальную работу; submittedAt фиксируется только по evidence от будущего provider.
+// startedAt фиксирует локальную работу; submittedAt фиксируется только по evidence от provider.
 export const requestSchema = z
   .strictObject({
     id: z.string().min(1),

@@ -11,6 +11,7 @@ import type {
 type QueueOptions = Readonly<{
   maxPendingPerConversation: number;
   maxConcurrentConversations: number;
+  reserveUncertainConversations?: boolean;
 }>;
 type AdmissionResult = AcceptanceResult | Readonly<{ kind: "rejected"; code: "QUEUE_NOT_RUNNING" }>;
 type QueuePhase = "idle" | "running" | "stopping" | "stopped" | "error";
@@ -31,7 +32,11 @@ export class RequestQueue {
   ) {
     const limit = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
     this.options = z
-      .strictObject({ maxPendingPerConversation: limit, maxConcurrentConversations: limit })
+      .strictObject({
+        maxPendingPerConversation: limit,
+        maxConcurrentConversations: limit,
+        reserveUncertainConversations: z.boolean().optional(),
+      })
       .readonly()
       .parse(options);
   }
@@ -83,8 +88,14 @@ export class RequestQueue {
     try {
       const snapshot = this.repository.snapshot();
       const blockedKeys = new Set(snapshot.blocked.map((block) => block.providerConversationId));
+      // R3 cannot release provider capacity while an uncertain remote generation may still exist.
+      const occupiedKeys = new Set(this.active.keys());
+      if (this.options.reserveUncertainConversations)
+        for (const block of snapshot.blocked)
+          if (block.reason === "reconciliation_required")
+            occupiedKeys.add(block.providerConversationId);
       for (const candidate of snapshot.queued) {
-        if (this.active.size >= this.options.maxConcurrentConversations) break;
+        if (occupiedKeys.size >= this.options.maxConcurrentConversations) break;
         const key = candidate.providerConversationId;
         if (this.active.has(key) || blockedKeys.has(key)) continue;
         const work = this.repository.claim(candidate.request.id, this.now());
@@ -92,6 +103,7 @@ export class RequestQueue {
         // Microtask запускает executor после регистрации ownership, включая синхронный throw в callback.
         const done = Promise.resolve().then(() => this.run(work));
         this.active.set(key, { requestId: work.request.id, done });
+        occupiedKeys.add(key);
       }
     } catch {
       this.errorCode = "QUEUE_STORAGE_FAILED";
