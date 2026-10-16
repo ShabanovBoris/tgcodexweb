@@ -96,6 +96,8 @@ describe("local bootstrap CLI", () => {
         database.query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all(),
       ).toEqual([
         { name: "active_conversations" },
+        { name: "attachment_batch_items" },
+        { name: "attachment_batches" },
         { name: "attachments" },
         { name: "conversations" },
         { name: "processed_updates" },
@@ -111,6 +113,7 @@ describe("local bootstrap CLI", () => {
         { version: 2, name: "0002_reuse_archived_alias.sql" },
         { version: 3, name: "0003_request_inputs.sql" },
         { version: 4, name: "0004_request_acceptances.sql" },
+        { version: 5, name: "0005_attachment_batches.sql" },
       ]);
     } finally {
       database.close(true);

@@ -10,7 +10,8 @@ export const processedUpdateSchema = z
   .readonly();
 export type ProcessedUpdate = z.infer<typeof processedUpdateSchema>;
 
-// Immutable marker хранит ingress evidence; orchestration дедупликации появится только в R2.
+// record never overwrites ingress evidence. R5 acceptance can bind a staged album marker
+// from no request to its one Request atomically; an existing request binding never changes.
 export interface UpdateDedupRepository {
   record(update: ProcessedUpdate): void;
   get(telegramUpdateId: string): ProcessedUpdate | null;

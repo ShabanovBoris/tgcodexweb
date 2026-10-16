@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AttachmentError } from "../../ports/AttachmentStore";
 
 const integer = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
 const sender = z.object({ id: integer.positive(), is_bot: z.boolean() });
@@ -9,6 +10,7 @@ const message = z.object({
   chat: z.object({ id: integer, type: z.enum(["private", "group", "supergroup", "channel"]) }),
   text: z.string().optional(),
   caption: z.string().optional(),
+  media_group_id: z.string().min(1).optional(),
   document: z.unknown().optional(),
   photo: z.unknown().optional(),
   audio: z.unknown().optional(),
@@ -36,6 +38,7 @@ export interface TelegramApi {
   getMe(): Promise<TelegramIdentity>;
   getUpdates(offset: number | undefined, signal: AbortSignal): Promise<TelegramUpdate[]>;
   sendMessage(input: TelegramSend): Promise<void>;
+  downloadFile(fileId: string, maxBytes: number, signal?: AbortSignal): AsyncIterable<Uint8Array>;
 }
 
 export class TelegramError extends Error {
@@ -100,8 +103,64 @@ export class HttpTelegramApi implements TelegramApi {
       throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
   }
 
+  async *downloadFile(
+    fileId: string,
+    maxBytes: number,
+    signal?: AbortSignal,
+  ): AsyncIterable<Uint8Array> {
+    signal?.throwIfAborted();
+    // The hosted Bot API supports downloads up to 20 MB. Metadata is not proof of actual size.
+    const limit = Math.min(maxBytes, 20_000_000);
+    const deadline = AbortSignal.timeout(30000);
+    const requestSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const parsed = z
+        .object({
+          file_id: z.string().min(1),
+          file_size: integer.nonnegative().optional(),
+          file_path: z.string().min(1),
+        })
+        .safeParse(await this.call("getFile", { file_id: fileId }, requestSignal));
+      if (!parsed.success) throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
+      if (parsed.data.file_size !== undefined && parsed.data.file_size > limit)
+        throw new AttachmentError("ATTACHMENT_TOO_LARGE");
+      const path = parsed.data.file_path;
+      const segments = path.split("/");
+      if (
+        /[\\\p{Cc}]/u.test(path) ||
+        segments.some((part) => !part || part === "." || part === "..")
+      )
+        throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
+      const response = await this.fetcher(
+        `https://api.telegram.org/file/bot${this.token}/${segments.map(encodeURIComponent).join("/")}`,
+        { method: "GET", redirect: "error", signal: requestSignal },
+      );
+      if (!response.ok || !response.body) throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
+      reader = response.body.getReader();
+      let size = 0;
+      for (;;) {
+        requestSignal.throwIfAborted();
+        const next = await reader.read();
+        if (next.done) break;
+        size += next.value.byteLength;
+        if (size > limit) throw new AttachmentError("ATTACHMENT_TOO_LARGE");
+        yield next.value;
+      }
+      if (parsed.data.file_size !== undefined && size !== parsed.data.file_size)
+        throw new AttachmentError("ATTACHMENT_REJECTED");
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason;
+      if (error instanceof AttachmentError) throw error;
+      throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
+    } finally {
+      await reader?.cancel().catch(() => {});
+      reader?.releaseLock();
+    }
+  }
+
   private async call(
-    method: "getMe" | "getUpdates" | "sendMessage",
+    method: "getMe" | "getUpdates" | "sendMessage" | "getFile",
     body: object,
     signal?: AbortSignal,
   ): Promise<unknown> {

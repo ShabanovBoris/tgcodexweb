@@ -10,7 +10,9 @@ export const telegramHelp = [
   "/remove <alias> — убрать локальную привязку",
   "/status — состояние",
   "/stop — остановить текущую генерацию",
-  "Обычный текст, включая reply, отправляется в выбранный чат. Файлы появятся в R5.",
+  "/send — отправить собранный альбом одним запросом",
+  "/discard — удалить черновик альбома",
+  "Обычный текст, включая reply, отправляется в выбранный чат. Одиночные файлы отправляются с caption. Альбом ждёт /send; чат фиксируется первым файлом.",
 ].join("\n");
 
 const arities: Record<string, readonly number[]> = {
@@ -25,6 +27,8 @@ const arities: Record<string, readonly number[]> = {
   remove: [1],
   status: [0],
   stop: [0],
+  send: [0],
+  discard: [0],
 };
 export type ParsedCommand =
   | Readonly<{ kind: "text" | "ignored" | "invalid" }>

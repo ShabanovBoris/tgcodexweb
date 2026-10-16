@@ -43,6 +43,7 @@ export async function startFakeGateway(
   // Explicit development mode uses separate metadata; it cannot reconcile real-provider requests with fake evidence.
   const fakeConfig = {
     ...config,
+    attachments: { ...config.attachments, tempDir: join(config.attachments.tempDir, "fake") },
     database: {
       path: join(dirname(config.database.path), `fake-${basename(config.database.path)}`),
     },
@@ -50,9 +51,10 @@ export async function startFakeGateway(
   await runGateway({
     config: fakeConfig,
     api: api ?? new HttpTelegramApi(config.telegram.botToken),
-    provider: (mappings) =>
+    provider: (mappings, attachmentStore) =>
       new FakeChatProvider({
-        capabilities: { maxConcurrentConversations: 2, cancellation: true, fileUpload: false },
+        attachmentStore,
+        capabilities: { maxConcurrentConversations: 2, cancellation: true, fileUpload: true },
         conversations: [
           "remote",
           "Remote",

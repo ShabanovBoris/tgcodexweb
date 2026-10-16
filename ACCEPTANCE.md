@@ -268,6 +268,11 @@ A Telegram-provided filename containing traversal syntax cannot cause writes out
 
 Temporary local copies are removed after successful processing or by bounded TTL cleanup after failure.
 
+R5 album acceptance additionally demonstrates the approved explicit `/send` boundary:
+ordered files/captions survive restart, bind the first mapping and produce one request;
+all source updates share its dedup mapping. `/discard`, draft expiry and late closed-group
+files never submit a prompt. TTL must preserve durable queued/non-terminal file refs.
+
 ---
 
 # H. Cancellation

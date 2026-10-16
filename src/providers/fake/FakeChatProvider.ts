@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import type { AttachmentStore } from "../../ports/AttachmentStore";
 import {
   type ChatProvider,
   type ProviderCancelResult,
@@ -52,13 +54,19 @@ type Operation = {
   finished: FakeBarrier;
 };
 
-// This provider holds only synthetic remote state. No filesystem, network, real clock or sleeps.
+// Synthetic remote state; optional file reads use the same application-owned port as a real adapter.
 export class FakeChatProvider implements ChatProvider {
   readonly capabilities: ProviderCapabilities;
   readonly sendCalls: string[] = [];
   readonly cancelCalls: string[] = [];
   readonly inspections: string[] = [];
   readonly submissions: ProviderSendInput[] = [];
+  readonly uploadedAttachments: {
+    clientRequestId: string;
+    storageKey: string;
+    sizeBytes: number;
+    sha256: string;
+  }[] = [];
   readonly maximumActive = new Map<string, number>();
   private healthState: ProviderHealth["state"] = "ready";
   private readonly conversations: Set<string>;
@@ -68,12 +76,14 @@ export class FakeChatProvider implements ChatProvider {
   private readonly signals = new Map<string, FakeBarrier>();
   private nextConversation = 1;
   private readonly conversationIdPrefix: string;
+  private readonly attachmentStore: Pick<AttachmentStore, "read"> | undefined;
 
   constructor(
     options: Readonly<{
       capabilities?: ProviderCapabilities;
       conversations?: readonly string[];
       conversationIdPrefix?: string;
+      attachmentStore?: Pick<AttachmentStore, "read">;
     }> = {},
   ) {
     this.capabilities = providerCapabilitiesSchema.parse(
@@ -85,6 +95,7 @@ export class FakeChatProvider implements ChatProvider {
     );
     this.conversations = new Set(options.conversations ?? ["remote", "Remote"]);
     this.conversationIdPrefix = options.conversationIdPrefix ?? "fake-conversation";
+    this.attachmentStore = options.attachmentStore;
   }
 
   plan(requestId: string, scenario: FakeScenario): void {
@@ -153,6 +164,28 @@ export class FakeChatProvider implements ChatProvider {
       };
     }
     if (this.operations.has(id)) throw new Error("FAKE_DUPLICATE_SEND");
+    if (this.attachmentStore) {
+      try {
+        for (const file of input.attachments) {
+          const hash = createHash("sha256");
+          let sizeBytes = 0;
+          for await (const chunk of this.attachmentStore.read(file.storageKey)) {
+            sizeBytes += chunk.byteLength;
+            if (sizeBytes > file.sizeBytes) throw new Error("FAKE_UPLOAD_SIZE_MISMATCH");
+            hash.update(chunk);
+          }
+          if (sizeBytes !== file.sizeBytes) throw new Error("FAKE_UPLOAD_SIZE_MISMATCH");
+          this.uploadedAttachments.push({
+            clientRequestId: id,
+            storageKey: file.storageKey,
+            sizeBytes,
+            sha256: hash.digest("hex"),
+          });
+        }
+      } catch {
+        return { ...identity, state: "not_submitted", code: "UPLOAD_FAILED" };
+      }
+    }
     if (
       this.active.has(input.conversationId) ||
       this.active.size >= this.capabilities.maxConcurrentConversations

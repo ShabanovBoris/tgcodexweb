@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, readdirSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../../src/config/Config";
@@ -32,6 +32,7 @@ function config(path = join(root, "gateway.sqlite")) {
     TELEGRAM_BOT_TOKEN: "123456789:R4_SYNTHETIC_TOKEN",
     TELEGRAM_ALLOWED_USER_IDS: "123",
     DATABASE_PATH: path,
+    ATTACHMENT_TEMP_DIR: join(root, "files"),
   });
 }
 
@@ -107,6 +108,83 @@ test("composition runs a Telegram round trip, closes gracefully, and persists ma
   expect(api.sent.map((message) => message.text).join("\n")).not.toContain("synthetic prompt");
   expect(logs.join("")).not.toContain("synthetic prompt");
   expect(logs.join("")).not.toContain("R4_SYNTHETIC_TOKEN");
+});
+
+test("R5 runtime passes actual files to the fake adapter and joins cleanup before closing SQLite", async () => {
+  const api = new FakeTelegramApi();
+  const controller = new AbortController();
+  let polls = 0;
+  const file = update(2, "");
+  if (file.message) {
+    delete file.message.text;
+    file.message.document = { file_id: "source", file_name: "source.ts", mime_type: "text/plain" };
+    file.message.caption = "review";
+  }
+  api.downloadFile = async function* () {
+    yield new TextEncoder().encode("const x = 1;");
+  };
+  api.getUpdates = async (_offset, signal) => {
+    if (++polls === 1) return [update(1, "/add coding remote"), file];
+    return new Promise((_, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  };
+  api.sendFailure = (message) => {
+    if (message.parseMode) controller.abort();
+    return undefined;
+  };
+  let provider: FakeChatProvider | undefined;
+  await runGateway({
+    config: config(),
+    api,
+    provider: (_mappings, attachmentStore) => {
+      provider = new FakeChatProvider({ attachmentStore });
+      return provider;
+    },
+    providerLabel: "Fake",
+    chatPolicy: privatePolicy,
+    signal: controller.signal,
+    log: createLogger({ sink: () => {} }),
+  });
+  expect(provider?.uploadedAttachments[0]).toMatchObject({
+    sizeBytes: 12,
+    sha256: new Bun.CryptoHasher("sha256").update("const x = 1;").digest("hex"),
+  });
+  expect(provider?.submissions).toHaveLength(1);
+  expect(readdirSync(config().attachments.tempDir)).toEqual([]);
+});
+
+test("R5 startup rejects a symlink attachment root before polling/provider startup", async () => {
+  const configured = config();
+  const target = join(root, "outside");
+  mkdirSync(target);
+  symlinkSync(target, configured.attachments.tempDir);
+  let polls = 0,
+    health = 0;
+  const api = new FakeTelegramApi();
+  api.getUpdates = async () => {
+    polls++;
+    return [];
+  };
+  const provider = new FakeChatProvider();
+  provider.health = async () => {
+    health++;
+    throw new Error("must not run");
+  };
+  await expect(
+    runGateway({
+      config: configured,
+      api,
+      provider,
+      providerLabel: "Fake",
+      chatPolicy: privatePolicy,
+      signal: new AbortController().signal,
+      log: createLogger({ sink: () => {} }),
+    }),
+  ).rejects.toThrow("ATTACHMENT_STORAGE_FAILED");
+  expect({ polls, health }).toEqual({ polls: 0, health: 0 });
+  expect(readdirSync(target)).toEqual([]);
 });
 
 test("recovery rechecks allowlist: revoked queued work cannot submit and uncertain work stays blocked without inspection", async () => {

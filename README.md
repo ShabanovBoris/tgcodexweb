@@ -1,4 +1,4 @@
-# TG WebGPT Gateway — R4 Telegram transport
+# TG WebGPT Gateway — R5 attachments
 
 This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
@@ -14,10 +14,10 @@ Read order:
 The repository includes the R0 shell, R1 domain/persistence, R2 durable acceptance
 and keyed queue, and R3 application-owned provider contract, deterministic fake and
 request lifecycle service. R4 adds conversation commands, Telegram HTTP polling,
-allowlist checks, progress, safe response splitting and delivery fallback. R5 and
-later phases are not implemented. See
+allowlist checks, progress, safe response splitting and delivery fallback. R5 adds bounded file downloads, isolated temporary storage and durable albums with
+explicit `/send` and `/discard`. R6 and later phases are not implemented. See
 [R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md) and
-[R3 evidence](docs/verification/R3.md) and [R4 evidence](docs/verification/R4.md).
+[R3 evidence](docs/verification/R3.md) and [R4 evidence](docs/verification/R4.md) and [R5 evidence](docs/verification/R5.md).
 
 ## Prerequisites and install
 
@@ -81,14 +81,17 @@ creating the database. Errors list field names and fixed reasons, never input va
 | `MAX_PENDING_PER_CONVERSATION` | `20` |
 | `ATTACHMENT_TEMP_DIR` | `./data/tmp` |
 | `ATTACHMENT_MAX_FILES_PER_REQUEST` | `10` |
-| `ATTACHMENT_MAX_FILE_SIZE_BYTES` | `52428800` |
+| `ATTACHMENT_MAX_FILE_SIZE_BYTES` | `52428800`; hosted Telegram download additionally capped at `20000000` |
+| `ATTACHMENT_TEMP_TTL_MS` | `86400000` (24 hours) |
+| `ATTACHMENT_ALLOWED_EXTENSIONS` | CSV subset of the supported text/source/PDF/image extensions |
+| `ATTACHMENT_ALLOWED_MIME_TYPES` | CSV subset of the supported MIME types |
 | `LOG_LEVEL` | `info`; also accepts `debug`, `warn`, `error` |
 | `LOG_CONTENT` | `false`; Boolean values must be `true` or `false` |
 
 All numeric limits must be positive safe integers; `GENERATION_TIMEOUT_MS` additionally
 must not exceed 2147483647 (the runtime timer limit). Relative paths resolve from the
 working directory. A composed R3 `RequestService` consumes the pending queue and generation
-timeout limits in the R4 runtime; the one-shot bootstrap does not run it. Attachment limits are for R5.
+timeout limits in the R4 runtime; the one-shot bootstrap does not run it. The R5 runtime consumes attachment limits and type policy.
 `LOG_CONTENT` is validated,
 but ordinary R0 logs have no prompt/response fields even when it is `true`.
 
@@ -118,7 +121,8 @@ offline Telegram API and use FakeChatProvider.
 
 Fake mode displays `FAKE (development)` in `/start` and `/status`. It uses a separate
 database next to `DATABASE_PATH`, with `fake-` prefixed to the basename (default:
-`data/fake-gateway.sqlite`). It never opens the normal database or browser profile.
+`data/fake-gateway.sqlite`). It never opens the normal database or browser profile. Its attachment files live under
+`ATTACHMENT_TEMP_DIR/fake/` and the fake adapter reads validated bytes through the store.
 Known synthetic mappings, including archived mappings, seed the fake's available IDs;
 new IDs are unique across restarts. It does not simulate persistent remote history or
 real ChatGPT access/authentication. `/add sample remote` attaches a predefined synthetic
@@ -131,13 +135,35 @@ after a lost polling offset. Commands are marked before effects, so interrupted 
 are not automatically replayed; command crash reconciliation is not implemented.
 
 Available commands are `/start`, `/help`, `/new [alias]`, `/add <alias> <url-or-id>`,
-`/chats`, `/use <alias>`, `/current`, `/rename <old> <new>`, `/remove <alias>`, `/status`
-and `/stop`. New aliases are case-sensitive, 1–64 UTF-16 units, without whitespace or
+`/chats`, `/use <alias>`, `/current`, `/rename <old> <new>`, `/remove <alias>`, `/status`,
+`/stop`, `/send` and `/discard`. New aliases are case-sensitive, 1–64 UTF-16 units, without whitespace or
 control/format characters. The provider verifies `/add` and supplies the opaque canonical
 ID; the transport never derives it from the supplied URL. Ordinary text is preserved
 exactly and targets the selected mapping. Telegram reply metadata does not branch the
-provider conversation. Attachments, including captions that look like commands, are
-rejected without downloads in R4.
+provider conversation. Single supported files are submitted immediately with their exact
+optional caption; captions that look like commands remain prompt text.
+
+Albums wait for `/send` and survive restart as one draft per user. The first file fixes
+the conversation; changing `/use` affects later ordinary text/single files. Files and
+captions follow Telegram message order; captions are joined with a newline. `/send`
+has no prompt argument. `/discard` closes the draft and removes its files. Drafts expire
+after TTL from their first file. Late files of closed groups are rejected; a second open
+album and unsupported/excess files are explicitly rejected before downloading. A queue-full
+`/send` retains the draft so it can be sent later.
+
+Supported documents include UTF-8 text/Markdown/source, PDF, JPEG, PNG, GIF and WebP.
+The exact configurable defaults are exported in `src/application/AttachmentService.ts`;
+configuration can restrict this set. ZIP is rejected pending a provider capability contract.
+Photo messages select the largest dimensions and require JPEG bytes; other supported
+images can be sent as documents. Size is checked on metadata and streamed bytes. Type
+checks cover MIME/extension agreement, UTF-8/no-NUL and PDF/image signatures, not complete
+format parsing. Filenames remain metadata; local files use random keys and mode 0600.
+
+Cleanup runs after durable terminal outcomes and with a local TTL sweep (startup and
+interval at most 60 seconds). Non-terminal accepted files and unclassified surviving refs
+never expire. Failed-cleanup/crash orphans are removed after TTL; cleanup failure cannot
+change completed generation or trigger another prompt. This uses no user-visible scheduler.
+Telegram API failures/download deadlines are normalized and are not automatically retried.
 
 Progress messages are queued/generating notifications followed by the durable outcome.
 Progress delivery cannot delay provider observation. Completed responses preserve their

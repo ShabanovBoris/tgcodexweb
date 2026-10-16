@@ -35,6 +35,9 @@ export function loadConfig(env: Environment, cwd = process.cwd()) {
       tempDir: resolve(cwd, values.ATTACHMENT_TEMP_DIR),
       maxFilesPerRequest: values.ATTACHMENT_MAX_FILES_PER_REQUEST,
       maxFileSizeBytes: values.ATTACHMENT_MAX_FILE_SIZE_BYTES,
+      tempTtlMs: values.ATTACHMENT_TEMP_TTL_MS,
+      allowedExtensions: values.ATTACHMENT_ALLOWED_EXTENSIONS,
+      allowedMimeTypes: values.ATTACHMENT_ALLOWED_MIME_TYPES,
     },
     logging: { level: values.LOG_LEVEL, content: values.LOG_CONTENT },
   } as const;

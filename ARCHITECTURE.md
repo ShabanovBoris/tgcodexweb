@@ -316,7 +316,10 @@ A failure during `SENDING` is retryable automatically only when the provider can
 R3 adds `uploading -> unknown` for interrupted work without reliable evidence; no artificial
 send transition is needed to represent ambiguity. Before invoking the combined upload/send
 port, RequestService validates generated attachment references and persists `sending`.
-No actual download, upload or filesystem resolution is implemented by the fake.
+R5 adds actual transport download and application-owned storage resolution. In the
+runtime, RequestService revalidates stored bytes before `sending`; failure here is proven
+pre-submit. The fake adapter can read generated keys through the same `AttachmentStore`
+port, without exposing local paths or browser types in `ProviderSendInput`.
 
 ---
 
@@ -704,6 +707,40 @@ Security requirements:
 - bounded size;
 - bounded count;
 - no arbitrary local file path command in MVP.
+
+R5 implements `AttachmentService` and `LocalAttachmentStore`. Downloads stream into
+exclusive generated `att_<random>` files with mode 0600; writes and directory entries are
+synced before acceptance. Reads reject symlinks/non-regular files and invalid keys. Remote
+filenames remain display metadata. The supported extension/MIME policy can be narrowed
+by configuration. Text is UTF-8 without NUL; PDF/images require matching signatures.
+This is a type policy, not a full document parser. ZIP remains rejected until a provider
+contract explicitly supports it. PhotoSize has no original filename/MIME: its path accepts
+validated JPEG; PNG/GIF/WebP can be sent as documents.
+
+Authorization and private-chat policy precede file metadata resolution, `getFile`, download
+and storage writes. HTTP downloads use only the hosted Telegram origin, encode relative
+file-path segments, reject traversal and redirects, and enforce the smaller of the
+configured limit and 20,000,000 bytes. Declared size never replaces streamed size checks.
+The transport preserves original document name/MIME from the incoming message;
+`getFile` does not guarantee these. Errors escape as fixed codes without token URLs.
+
+Forward migration `0005_attachment_batches.sql` stores unaccepted album drafts and ordered
+file items. Telegram does not provide an album completion marker; the approved `/send`
+boundary is explicit. `attachmentBatchId` is an acceptance-only RequestInput field. In the
+existing queue transaction, the repository validates the exact draft/mapping/ordered
+files/captions, links all source update markers, closes the draft and deletes its items.
+The normal Request/input/attachment/dedup frame is committed before queue dispatch. A
+capacity rejection preserves the draft; a rollback cannot schedule provider work.
+Closed group identities and processed markers contain no caption or working file refs.
+
+Physical cleanup follows durable terminal settlement, including UNKNOWN; failures are
+diagnostic and never change provider evidence or cause resubmission. Runtime startup
+validates the storage root, and a local sweep runs at startup and at most 60 seconds
+apart. It expires unaccepted drafts and removes aged, unreferenced, generated regular
+files. Any surviving attachment row (including legacy/unclassified ownership), any draft
+item or an in-process preparation lease protects a file from TTL deletion. Thus queued
+input cannot expire; crash/failed-cleanup orphans are collected after the configured TTL.
+Fake CLI uses a separate `fake/` storage subdirectory as well as its separate database.
 
 ---
 

@@ -2,7 +2,9 @@ import { ConversationError, type ConversationService } from "../../application/C
 import type { RequestResult, RequestService } from "../../application/RequestService";
 import type { Conversation } from "../../domain/Conversation";
 import type { Request } from "../../domain/Request";
+import type { RequestInput } from "../../domain/RequestInput";
 import type { createLogger } from "../../logging/logger";
+import { AttachmentError } from "../../ports/AttachmentStore";
 import { ProviderOperationError } from "../../ports/ChatProvider";
 import type { ConversationRepository } from "../../ports/ConversationRepository";
 import type { RequestQueueRepository } from "../../ports/RequestQueueRepository";
@@ -10,6 +12,7 @@ import type { RequestRepository } from "../../ports/RequestRepository";
 import type { UpdateDedupRepository } from "../../ports/UpdateDedupRepository";
 import { type TelegramApi, TelegramError, type TelegramUpdate } from "./TelegramApi";
 import { parseTelegramCommand, telegramHelp } from "./TelegramCommands";
+import type { TelegramFileCollector } from "./TelegramFileCollector";
 import { renderTelegram } from "./TelegramRenderer";
 
 type Message = NonNullable<TelegramUpdate["message"]>;
@@ -31,6 +34,7 @@ type Dependencies = Readonly<{
   now: () => string;
   newRequestId: () => string;
   log: ReturnType<typeof createLogger>;
+  files?: TelegramFileCollector;
 }>;
 
 export class TelegramBot {
@@ -75,17 +79,75 @@ export class TelegramBot {
       message.sticker,
       message.video_note,
     ].some((value) => value !== undefined);
+    if (media) {
+      if (!this.dependencies.files) {
+        this.markCommand(updateId);
+        await this.notice(destination, "ATTACHMENT_REJECTED");
+        return;
+      }
+      let collected: Awaited<ReturnType<TelegramFileCollector["collect"]>> | undefined;
+      let accepted = false;
+      try {
+        collected = await this.dependencies.files.collect(userId, message, updateId, () =>
+          this.dependencies.conversations.current(userId),
+        );
+        if (collected.kind === "staged")
+          await this.notice(
+            destination,
+            `Файлов в черновике: ${collected.count} · ${collected.mapping.alias}. /send или /discard`,
+          );
+        else
+          accepted = await this.accept(
+            userId,
+            updateId,
+            String(message.message_id),
+            destination,
+            collected.mapping,
+            collected.input,
+            collected.id,
+          );
+      } catch (error) {
+        if (!(error instanceof AttachmentError || error instanceof ConversationError)) throw error;
+        if (!this.dependencies.updates.get(updateId)) this.markCommand(updateId);
+        await this.notice(destination, error.code);
+      } finally {
+        if (collected?.kind === "single")
+          await this.dependencies.files.releaseSingle(collected.prepared, accepted);
+      }
+      return;
+    }
     const command = parseTelegramCommand(message.text ?? "", this.dependencies.username);
     if (command.kind === "ignored") return;
-    if (media || !message.text || command.kind === "invalid") {
+    if (!message.text || command.kind === "invalid") {
       this.markCommand(updateId);
-      await this.notice(
-        destination,
-        media ? "ATTACHMENT_REJECTED: файлы появятся в R5." : "INVALID_COMMAND: /help",
-      );
+      await this.notice(destination, "INVALID_COMMAND: /help");
       return;
     }
     if (command.kind === "command") {
+      if (command.name === "send") {
+        try {
+          const pending = this.dependencies.files?.pending(userId);
+          if (pending)
+            await this.accept(
+              userId,
+              updateId,
+              String(message.message_id),
+              destination,
+              pending.mapping,
+              pending.input,
+              pending.id,
+            );
+          else {
+            this.markCommand(updateId);
+            await this.notice(destination, "Нет черновика альбома.");
+          }
+        } catch (error) {
+          if (!(error instanceof AttachmentError)) throw error;
+          this.markCommand(updateId);
+          await this.notice(destination, error.code);
+        }
+        return;
+      }
       // Mark before effects, including remote creation. Interrupted commands are never silently replayed.
       this.markCommand(updateId);
       this.dependencies.conversations.authorizeUser(userId);
@@ -112,25 +174,37 @@ export class TelegramBot {
       await this.notice(destination, "CHAT_NOT_READY");
       return;
     }
+    await this.accept(userId, updateId, String(message.message_id), destination, selected, {
+      text: message.text,
+      attachments: [],
+    });
+  }
+
+  private async accept(
+    userId: string,
+    updateId: string,
+    messageId: string,
+    destination: Destination,
+    selected: Conversation,
+    input: RequestInput,
+    id = this.dependencies.newRequestId(),
+  ): Promise<boolean> {
     const request: Request = {
-      id: this.dependencies.newRequestId(),
+      id,
       conversationId: selected.id,
       telegramUpdateId: updateId,
-      telegramMessageId: String(message.message_id),
+      telegramMessageId: messageId,
       state: "created",
       createdAt: this.dependencies.now(),
     };
     const gate = Promise.withResolvers<void>();
     this.progressGates.set(request.id, gate.promise);
     try {
-      const result = this.dependencies.requests.accept(request, {
-        text: message.text,
-        attachments: [],
-      });
+      const result = this.dependencies.requests.accept(request, input);
       if (result.kind !== "accepted") {
         this.progressGates.delete(request.id);
         if (result.kind === "rejected") await this.notice(destination, result.code);
-        return;
+        return false;
       }
       this.dependencies.log("info", {
         operation: "telegram.accepted",
@@ -141,6 +215,7 @@ export class TelegramBot {
         requestState: "queued",
       });
       await this.notice(destination, `В очереди [${request.id}] · ${selected.alias}`);
+      return true;
     } catch (error) {
       this.progressGates.delete(request.id);
       throw error;
@@ -270,6 +345,10 @@ export class TelegramBot {
         }[result.kind];
         break;
       }
+      case "discard":
+        await this.dependencies.files?.discard(userId);
+        response = "Черновик альбома удалён.";
+        break;
       default:
         response = "INVALID_COMMAND: /help";
     }

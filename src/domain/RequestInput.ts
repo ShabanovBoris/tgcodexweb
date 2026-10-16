@@ -6,6 +6,7 @@ export const requestInputSchema = z
   .strictObject({
     text: z.string().min(1).optional(),
     attachments: z.array(attachmentSchema).readonly(),
+    attachmentBatchId: z.string().min(1).optional(),
   })
   .refine((input) => input.text !== undefined || input.attachments.length > 0)
   .readonly();
