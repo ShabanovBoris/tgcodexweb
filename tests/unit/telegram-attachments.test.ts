@@ -10,6 +10,7 @@ import { SqliteAttachmentBatchRepository } from "../../src/persistence/sqlite/Sq
 import { FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
 import { LocalAttachmentStore } from "../../src/storage/LocalAttachmentStore";
 import type { TelegramUpdate } from "../../src/transports/telegram/TelegramApi";
+import { TelegramPolling } from "../../src/transports/telegram/TelegramPolling";
 import { later, QueueFixture } from "../fixtures/queue";
 import { setupTelegram, update } from "../fixtures/telegram";
 
@@ -216,6 +217,58 @@ test("TTL expires unaccepted drafts and closed groups never restart; accepted qu
   expect(t.provider.submissions).toHaveLength(1);
   expect(await readdir(join(f.root, "files"))).toEqual([]);
   await t.requests.shutdown();
+});
+
+test("album expiry during an asynchronous next-file download is handled and polling continues", async () => {
+  const t = setup();
+  await t.requests.start();
+  await t.bot.handle(fileUpdate(1, "expiring"));
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  t.api.downloadFile = async function* () {
+    entered.resolve();
+    await release.promise;
+    yield new TextEncoder().encode("text");
+  };
+  const offsets: (number | undefined)[] = [];
+  const controller = new AbortController();
+  t.api.getUpdates = async (offset) => {
+    offsets.push(offset);
+    if (offsets.length === 1) return [fileUpdate(2, "expiring")];
+    if (offsets.length === 2) return [update(3, "next prompt")];
+    await t.requests.waitForIdle();
+    controller.abort();
+    return [];
+  };
+  const polling = new TelegramPolling({
+    api: t.api,
+    initialize: async () => {},
+    handle: (input) => t.bot.handle(input),
+    shutdown: () => t.requests.shutdown(),
+  });
+  const operation = polling.run(controller.signal).then(
+    () => ({ handled: true }),
+    (error: unknown) => ({ handled: false, error }),
+  );
+  await entered.promise;
+  t.batches.expire("2026-10-03T00:00:00.000Z");
+  expect(t.provider.submissions).toEqual([]);
+  expect(polling.ready()).toBe(true);
+  release.resolve();
+  expect(await operation).toEqual({ handled: true });
+  expect(offsets).toEqual([undefined, 3, 4]);
+  expect(t.batches.getOpen("123")).toBeNull();
+  expect(t.batches.getGroup("123", "123", "expiring")?.state).toBe("closed");
+  expect(f.updates.get("2")).not.toBeNull();
+  expect(f.updates.get("2")?.requestId).toBeUndefined();
+  expect(f.requests.findByUpdate("2")).toBeNull();
+  expect(t.api.sent.map((message) => message.text).join("\n")).toContain("ATTACHMENT_REJECTED");
+  expect((await readdir(join(f.root, "files"))).length).toBe(1);
+  await t.store.sweep(() => t.batches.retainedStorageKeys(), Date.now() + 10000);
+  expect(await readdir(join(f.root, "files"))).toEqual([]);
+  expect(t.provider.submissions).toHaveLength(1);
+  expect(t.provider.submissions[0].text).toBe("next prompt");
+  expect(f.requests.findByUpdate("3")?.state).toBe("completed");
 });
 
 test("missing/tampered queued bytes fail before provider.send; cleanup/delivery failure never reclassify provider completion", async () => {

@@ -145,6 +145,15 @@ export class TelegramFileCollector {
         prepared,
       };
     try {
+      if (existing) {
+        // TTL cleanup can close this draft while prepare awaits the download.
+        batches.expire(this.dependencies.now());
+        if (
+          batches.getGroup(userId, String(message.chat.id), message.media_group_id)?.state !==
+          "open"
+        )
+          throw new AttachmentError("ATTACHMENT_REJECTED");
+      }
       batches.append(
         existing ?? {
           id,
