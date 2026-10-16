@@ -1,12 +1,12 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -27,13 +27,21 @@ const invalidEnvironments: Environment[] = [
 let root: string;
 
 // Subprocess получает только явно заданный env и собственный cwd, без credentials и чужого state.
-function run(command: string, env: Environment = {}) {
-  return Bun.spawnSync([process.execPath, "--no-env-file", cli, command], {
-    cwd: root,
-    env: { PATH: process.env.PATH ?? "", ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+function run(command: string | readonly string[], env: Environment = {}) {
+  return Bun.spawnSync(
+    [
+      process.execPath,
+      "--no-env-file",
+      cli,
+      ...(typeof command === "string" ? [command] : command),
+    ],
+    {
+      cwd: root,
+      env: { PATH: process.env.PATH ?? "", ...env },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
 }
 
 beforeEach(() => {
@@ -110,7 +118,7 @@ describe("local bootstrap CLI", () => {
   });
 
   test("bootstrap is one-shot, migrates local metadata and never announces READY", () => {
-    const result = run("start", fixtures);
+    const result = run("bootstrap", fixtures);
     expect(result.exitCode).toBe(0);
     expect(JSON.parse(result.stderr.toString()).operation).toBe("bootstrap.complete");
     expect(result.stderr.toString()).not.toContain("READY");
@@ -129,6 +137,33 @@ describe("local bootstrap CLI", () => {
     expect(receipt.errorCode).toBe("DATABASE_ERROR");
     expect(receipt.reason).toBe("initialization_failed");
     expect(result.stderr.toString()).not.toContain("r0-private-path");
+  });
+
+  test("start reports missing real adapter and never silently substitutes fake or one-shot bootstrap", () => {
+    const result = run("start", fixtures);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr.toString())).toMatchObject({
+      errorCode: "PROVIDER_UNAVAILABLE",
+      reason: "adapter_not_implemented",
+    });
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("fake transport needs explicit private-chat opt-in before network/filesystem effects", () => {
+    const result = run("start:fake", fixtures);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr.toString()).reason).toBe(
+      "explicit_private_chat_opt_in_required",
+    );
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("fake runtime rejects a malformed token before network or local state, without exposing it", () => {
+    const result = run(["start:fake", "--private"], fixtures);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr.toString()).errorCode).toBe("TELEGRAM_TOKEN_INVALID");
+    expect(result.stderr.toString()).not.toContain(fixtures.TELEGRAM_BOT_TOKEN);
+    expect(readdirSync(root)).toEqual([]);
   });
 
   test("bunfig disables automatic local .env loading", () => {

@@ -42,6 +42,8 @@ type Dependencies = Readonly<{
   options: Readonly<{ maxPendingPerConversation: number; generationTimeoutMs: number }>;
   now: () => string;
   onResult: (result: RequestResult) => void | Promise<void>;
+  onProgress?: (request: Request) => void | Promise<void>;
+  requestAllowed?: (request: Request) => boolean;
   scheduleDeadline?: (milliseconds: number, expire: () => void) => () => void;
 }>;
 type ActiveRequest = {
@@ -154,6 +156,10 @@ export class RequestService {
     this.active.set(work.providerConversationId, active);
     const reference = this.reference(work.request, work.providerConversationId);
     try {
+      if (this.dependencies.requestAllowed && !this.dependencies.requestAllowed(work.request)) {
+        await this.failBeforeSend(work, "UNAUTHORIZED_TELEGRAM_USER");
+        return;
+      }
       const health = await this.health();
       if (health.state !== "ready") {
         await this.failBeforeSend(
@@ -202,7 +208,7 @@ export class RequestService {
         await this.settle(work.request.id, sent);
         return;
       }
-      this.dependencies.requests.transition(work.request.id, {
+      const running = this.dependencies.requests.transition(work.request.id, {
         state: "running",
         at: this.dependencies.now(),
         providerRequestId: sent.providerRequestId,
@@ -216,6 +222,7 @@ export class RequestService {
       });
       let outcome: ProviderOutcome;
       try {
+        this.progress(running);
         try {
           outcome = providerOutcomeSchema.parse(
             await this.dependencies.provider.awaitCompletion({
@@ -302,6 +309,15 @@ export class RequestService {
     }
   }
 
+  private progress(request: Request): void {
+    try {
+      // Notifications cannot delay provider observation/deadlines. The transport joins its delivery before onResult.
+      void Promise.resolve(this.dependencies.onProgress?.(request)).catch(() => {});
+    } catch {
+      // A failed notification has no bearing on provider evidence.
+    }
+  }
+
   private async reconcile(): Promise<void> {
     const snapshot = this.dependencies.queueRepository.snapshot();
     for (const block of snapshot.blocked) {
@@ -309,7 +325,8 @@ export class RequestService {
       if (
         !current ||
         terminalStates.includes(current.state) ||
-        block.reason === "input_unavailable"
+        block.reason === "input_unavailable" ||
+        (this.dependencies.requestAllowed && !this.dependencies.requestAllowed(current))
       )
         continue;
       const reference = this.reference(current, block.providerConversationId);

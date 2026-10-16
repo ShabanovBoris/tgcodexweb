@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { RequestService, type RequestResult } from "../../src/application/RequestService";
+import { type RequestResult, RequestService } from "../../src/application/RequestService";
 import type {
   ProviderCancelResult,
   ProviderOutcome,
@@ -397,6 +397,50 @@ describe("R3 request lifecycle", () => {
       "duplicate",
     );
     expect(provider.submissions).toHaveLength(1);
+    await service.shutdown();
+  });
+
+  test("R4 progress failure after durable submission is auxiliary and does not prevent completion", async () => {
+    const observed: string[] = [];
+    const { service, provider, results } = setup(new FakeChatProvider(), {
+      onProgress: (current) => {
+        expect(f.requests.get(current.id)?.state).toBe("running");
+        expect(current.submittedAt).toBe(later);
+        observed.push(current.id);
+        throw new Error("synthetic progress failure");
+      },
+    });
+    await service.start();
+    service.accept(request(), { text: "synthetic", attachments: [] });
+    await service.waitForIdle();
+    expect(observed).toEqual(["r1"]);
+    expect(provider.submissions).toHaveLength(1);
+    expect(results[0].request.state).toBe("completed");
+    expect(service.status().deliveryFailures).toEqual([]);
+    await service.shutdown();
+  });
+
+  test("R4 slow progress cannot delay provider observation or durable deadline settlement", async () => {
+    const notification = new FakeBarrier();
+    let expire!: () => void;
+    const { service, provider } = setup(new FakeChatProvider(), {
+      onProgress: async () => {
+        await notification.promise;
+      },
+      scheduleDeadline: (_milliseconds, fire) => {
+        expire = fire;
+        return () => {};
+      },
+    });
+    provider.plan("r1", { kind: "slow" });
+    await service.start();
+    service.accept(request(), { text: "synthetic", attachments: [] });
+    await provider.waiting("r1");
+    expire();
+    await service.waitForIdle();
+    expect(f.requests.get("r1")?.state).toBe("unknown");
+    expect(provider.submissions).toHaveLength(1);
+    notification.release();
     await service.shutdown();
   });
 

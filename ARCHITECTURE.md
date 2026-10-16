@@ -507,7 +507,7 @@ it is not reused after deleting terminal input. Attachment values remain solely 
 durable acceptance ownership, processed-update marker and `created -> queued` commit
 together or roll back together.
 Only authorized, resolved mapping inputs should reach this application boundary; the
-future Telegram adapter owns the allowlist and command routing.
+Telegram adapter owns the allowlist and command routing.
 
 `SqliteRequestRepository.transition` implements approved retention A: terminal lifecycle
 update, R2 attachment deletion and input deletion share the same transaction. It retains
@@ -623,6 +623,32 @@ Telegram adapter must not:
 - mutate SQLite directly outside repositories;
 - store browser authentication data.
 
+R4 implements a small HTTP Bot API adapter with injectable fetch/API boundaries;
+there is no Telegram SDK dependency. Domain/application modules have no transport imports.
+Sequential ingress preserves command/selection/acceptance order without waiting for
+generation. Text uses R2's atomic request/input/dedup acceptance. Command markers precede
+effects, including remote creation: an interrupted command is consumed, not auto-replayed.
+Local aliases are case-sensitive, 1–64 UTF-16 units, without whitespace/control/format
+characters. Provider create/inspect supplies identity; the input reference is never a key.
+
+The runtime takes an explicit chat policy. The development entry point requires
+`start:fake --private` and only accepts matching private sender/chat IDs after allowlist
+checks. No group mode is enabled; the product group policy still needs a decision.
+Replies after restart resolve through the historical request mapping, even if selection
+changed or the alias was archived/reused. The current allowlist is checked on delivery
+and on recovered request execution. Revoked queued work fails before provider submission;
+revoked interrupted work remains blocked without inspection or replay.
+
+Token validation precedes database/provider startup. Polling offset advances only after
+handled ingress; loss of offset does not lose durable deduplication. API/poll failures
+terminate the runtime without automatic retries or webhook deletion. Signal shutdown
+stops polling/admission and joins active request effects before database closure. This is
+the minimum lifecycle needed for a running R4 transport, not full R7 operational recovery.
+
+Fake mode uses a separate database with a `fake-` basename prefix and a clearly labelled
+status. It does not use the real database/profile or represent real remote history.
+`start` reports the missing R6 adapter; `bootstrap` retains the old one-shot maintenance.
+
 ---
 
 ## 15. Markdown rendering
@@ -645,6 +671,16 @@ Chunking priority:
 5. hard byte/character boundary only as a last resort.
 
 Telegram parse errors should fall back to plain text rather than losing the answer.
+
+R4's conservative normalized model retains all source characters, including Markdown
+delimiters. It escapes HTML and formats fenced regions with balanced `<pre>` tags; other
+Markdown remains literal. Code blocks stay atomic when they fit. Each chunk has a matching
+plain representation, uses at most 4096 UTF-16 units and preserves surrogate pairs.
+Only an explicit HTTP 400 / `ok=false` / error-code 400 / `can't parse entities`
+rejection retries the rejected chunk once
+as plain text; successful earlier chunks are not repeated. Other delivery errors are not
+retried. Progress is auxiliary and cannot delay provider evidence/deadlines; final transport
+delivery joins its progress notifications after durable settlement.
 
 ---
 
