@@ -19,6 +19,7 @@ describe("configuration", () => {
     expect(config.queue.maxPendingPerConversation).toBe(20);
     expect(config.attachments.maxFilesPerRequest).toBe(10);
     expect(config.attachments.maxFileSizeBytes).toBe(52428800);
+    expect(config.attachments.tempTtlMs).toBe(86400000);
     expect(config.logging).toEqual({ level: "info", content: false });
   });
 
@@ -56,6 +57,7 @@ describe("configuration", () => {
         "MAX_PENDING_PER_CONVERSATION",
         "ATTACHMENT_MAX_FILES_PER_REQUEST",
         "ATTACHMENT_MAX_FILE_SIZE_BYTES",
+        "ATTACHMENT_TEMP_TTL_MS",
       ]) {
         expect(() => loadConfig({ ...environment, [field]: value })).toThrow(ConfigError);
       }
@@ -66,6 +68,21 @@ describe("configuration", () => {
     expect(loadConfig({ ...environment, LOG_CONTENT: "false" }).logging.content).toBe(false);
     expect(loadConfig({ ...environment, LOG_CONTENT: "true" }).logging.content).toBe(true);
     expect(() => loadConfig({ ...environment, LOG_CONTENT: "yes" })).toThrow(ConfigError);
+  });
+
+  test("attachment configuration can narrow supported types but cannot enable unknown/ZIP handling", () => {
+    const config = loadConfig({
+      ...environment,
+      ATTACHMENT_ALLOWED_EXTENSIONS: "ts,md",
+      ATTACHMENT_ALLOWED_MIME_TYPES: "text/plain,text/markdown",
+    });
+    expect(config.attachments.allowedExtensions).toEqual(["ts", "md"]);
+    for (const fields of [
+      { ATTACHMENT_ALLOWED_EXTENSIONS: "zip" },
+      { ATTACHMENT_ALLOWED_MIME_TYPES: "application/zip" },
+      { ATTACHMENT_TEMP_TTL_MS: "9007199254740991" },
+    ])
+      expect(() => loadConfig({ ...environment, ...fields })).toThrow(ConfigError);
   });
 
   test("generation deadline rejects timer overflow instead of becoming a 1ms timeout", () => {

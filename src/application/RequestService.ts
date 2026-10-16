@@ -1,6 +1,8 @@
 import { z } from "zod";
+import type { Attachment } from "../domain/Attachment";
 import { type Request, terminalStates } from "../domain/Request";
 import type { RequestInput } from "../domain/RequestInput";
+import { AttachmentError } from "../ports/AttachmentStore";
 import {
   type ChatProvider,
   type ProviderAssistantMessage,
@@ -25,6 +27,7 @@ import type {
 } from "../ports/RequestQueueRepository";
 import type { RequestRepository } from "../ports/RequestRepository";
 import { RequestQueue } from "../queue/RequestQueue";
+import type { AttachmentService } from "./AttachmentService";
 
 export type RequestResult = Readonly<{
   request: Request;
@@ -45,6 +48,7 @@ type Dependencies = Readonly<{
   onProgress?: (request: Request) => void | Promise<void>;
   requestAllowed?: (request: Request) => boolean;
   scheduleDeadline?: (milliseconds: number, expire: () => void) => () => void;
+  attachments?: AttachmentService;
 }>;
 type ActiveRequest = {
   work: QueueWork;
@@ -57,6 +61,7 @@ export class RequestService {
   private readonly queue: RequestQueue;
   private readonly active = new Map<string, ActiveRequest>();
   private readonly deliveryFailures = new Set<string>();
+  private readonly cleanupFailures = new Set<string>();
   private readonly capabilities;
   private readonly options;
   private readonly scheduleDeadline;
@@ -122,6 +127,7 @@ export class RequestService {
       ...this.queue.status(),
       providerHealth: this.providerHealth,
       deliveryFailures: [...this.deliveryFailures],
+      cleanupFailures: [...this.cleanupFailures],
     };
   }
 
@@ -175,6 +181,17 @@ export class RequestService {
       ) {
         await this.failBeforeSend(work, "ATTACHMENT_REJECTED");
         return;
+      }
+      if (work.request.state === "uploading" && this.dependencies.attachments) {
+        try {
+          await this.dependencies.attachments.validateForSend(work.input.attachments);
+        } catch (error) {
+          await this.failBeforeSend(
+            work,
+            error instanceof AttachmentError ? error.code : "ATTACHMENT_UNAVAILABLE",
+          );
+          return;
+        }
       }
       if (work.request.state === "uploading")
         this.dependencies.requests.transition(work.request.id, {
@@ -284,20 +301,32 @@ export class RequestService {
       at: this.dependencies.now(),
       failureCode: current.state === "sending" ? "SEND_FAILED_PRE_SUBMIT" : code,
     });
+    await this.cleanup(work.request.id, work.input.attachments);
     await this.deliver({ request, errorCode: code });
   }
 
   private async settle(id: string, evidence: ProviderOutcome): Promise<void> {
+    const files = this.dependencies.requests.listAttachments(id);
     const request = this.dependencies.requests.transition(id, {
       state: evidence.state,
       at: this.dependencies.now(),
       failureCode: evidence.state === "failed" ? evidence.code : undefined,
     });
+    await this.cleanup(id, files);
     await this.deliver({
       request,
       message: evidence.state === "completed" ? evidence.message : undefined,
       errorCode: "code" in evidence ? evidence.code : undefined,
     });
+  }
+
+  private async cleanup(requestId: string, files: readonly Attachment[]): Promise<void> {
+    try {
+      if (this.dependencies.attachments && !(await this.dependencies.attachments.cleanup(files)))
+        this.cleanupFailures.add(requestId);
+    } catch {
+      this.cleanupFailures.add(requestId);
+    }
   }
 
   // Delivery is auxiliary only after durable provider settlement; failure cannot reclassify or resubmit it.
@@ -340,11 +369,13 @@ export class RequestService {
         evidence = this.unknown(reference);
       }
       if (evidence.state === "not_submitted" && !current.submittedAt) {
+        const files = this.dependencies.requests.listAttachments(current.id);
         const request = this.dependencies.requests.transition(current.id, {
           state: "failed",
           at: this.dependencies.now(),
           failureCode: current.state === "sending" ? "SEND_FAILED_PRE_SUBMIT" : evidence.code,
         });
+        await this.cleanup(current.id, files);
         await this.deliver({ request, errorCode: evidence.code });
         continue;
       }

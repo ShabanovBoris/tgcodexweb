@@ -11,6 +11,7 @@ import type {
 } from "../../ports/RequestQueueRepository";
 import { DatabaseError } from "./Database";
 import { repositoryOperation } from "./repositoryOperation";
+import { SqliteAttachmentBatchRepository } from "./SqliteAttachmentBatchRepository";
 import { SqliteConversationRepository } from "./SqliteConversationRepository";
 import { SqliteRequestRepository } from "./SqliteRequestRepository";
 import { SqliteUpdateDedupRepository } from "./SqliteUpdateDedupRepository";
@@ -88,6 +89,8 @@ export class SqliteRequestQueueRepository implements RequestQueueRepository {
             processedAt: request.createdAt,
           });
           this.requests.transition(request.id, { state: "queued", at: request.createdAt });
+          if (input.attachmentBatchId)
+            new SqliteAttachmentBatchRepository(this.database).completeAcceptance(request, input);
           return { kind: "accepted", requestId: request.id };
         })
         .immediate(),

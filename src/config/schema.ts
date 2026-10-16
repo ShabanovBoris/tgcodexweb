@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  supportedAttachmentExtensions,
+  supportedAttachmentMimeTypes,
+} from "../application/AttachmentService";
 
 export const logLevels = ["debug", "info", "warn", "error"] as const;
 export type LogLevel = (typeof logLevels)[number];
@@ -33,6 +37,19 @@ const databasePath = z.preprocess(
     .min(1, { error: "invalid_path" })
     .default("./data/gateway.sqlite"),
 );
+
+function allowedList(values: readonly string[]) {
+  return z.preprocess(
+    blankAsMissing,
+    z
+      .string()
+      .default(values.join(","))
+      .transform((value) => value.split(",").map((entry) => entry.trim().toLowerCase()))
+      .refine((entries) => entries.length > 0 && entries.every((entry) => values.includes(entry)), {
+        error: "unsupported_attachment_type",
+      }),
+  );
+}
 
 // Schema владеет валидацией внешних строк; дальнейшие слои получают уже проверенные значения.
 export const configSchema = z.object({
@@ -70,6 +87,12 @@ export const configSchema = z.object({
   ),
   ATTACHMENT_MAX_FILES_PER_REQUEST: positiveInteger(10),
   ATTACHMENT_MAX_FILE_SIZE_BYTES: positiveInteger(52428800),
+  ATTACHMENT_TEMP_TTL_MS: positiveInteger(86400000).refine(
+    (value) => Number.isFinite(new Date(Date.now() + value).getTime()),
+    { error: "invalid_attachment_ttl" },
+  ),
+  ATTACHMENT_ALLOWED_EXTENSIONS: allowedList(supportedAttachmentExtensions),
+  ATTACHMENT_ALLOWED_MIME_TYPES: allowedList(supportedAttachmentMimeTypes),
   LOG_LEVEL: z.preprocess(
     blankAsMissing,
     z.enum(logLevels, { error: "invalid_log_level" }).default("info"),

@@ -190,6 +190,8 @@ Required commands for MVP:
 /remove <alias>
 /status
 /stop
+/send
+/discard
 ```
 
 Recommended additional operator command:
@@ -253,6 +255,22 @@ Configurable constraints:
 - temporary file TTL.
 
 Temporary downloads must be removed after successful completion or after a bounded cleanup period.
+
+R5 album policy (approved 2026-10-16): a single document/photo is submitted immediately
+with its optional caption. A media group is a durable draft until explicit `/send`;
+`/discard` closes it without a provider prompt. Only one album draft per user is open.
+The first file fixes the conversation mapping. Files and captions use Telegram message
+order; multiple captions are joined with one newline, without interpreting commands.
+The draft survives restart and expires after the configured TTL measured from its first
+file. Closed/discarded/expired group identities cannot be reopened by late files.
+An unsupported/excess file is rejected with an explicit notice and is not added to the
+draft; the user can send the remaining collected files or discard the draft.
+Ordinary text and separate single files still target the current conversation.
+
+`/send` adds no prompt argument: the collected captions are its prompt. Queue rejection
+leaves the draft available for another `/send`. Acceptance atomically closes the draft
+and associates the file updates and `/send` update with the same request. After acceptance,
+the non-terminal retention policy below protects files without TTL expiry.
 
 ---
 

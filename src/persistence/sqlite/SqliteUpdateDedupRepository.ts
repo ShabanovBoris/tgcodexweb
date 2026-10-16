@@ -6,7 +6,7 @@ import {
 } from "../../ports/UpdateDedupRepository";
 import { repositoryOperation } from "./repositoryOperation";
 
-// Marker неизменяем; повторный INSERT отклоняется, не подменяя исходный requestId.
+// record rejects an existing marker; R5's queue transaction owns the one-time binding of staged album updates.
 export class SqliteUpdateDedupRepository implements UpdateDedupRepository {
   constructor(private readonly database: Database) {}
 

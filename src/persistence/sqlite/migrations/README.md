@@ -45,3 +45,11 @@ without changes to schema, data, ledger or connection pragmas.
 An upgrade is forward-only: correct an applied migration with a new file, never by
 editing or removing its predecessor. SQL fixtures under `tests/fixtures` are not
 production migrations.
+
+R5 adds `0005_attachment_batches.sql` without changing 0001–0004. One open album per
+user is enforced by a partial unique index; a composite FK binds it to that user's
+conversation mapping. Items reference durable processed updates and have unique message
+and storage identities. Draft acceptance transfers the exact ordered input and source
+markers to the R2 queue transaction before closing/removing draft content. Closed group
+identities remain to reject late files. Tests cover fresh schema, populated 0004 upgrade,
+failed-upgrade rollback, restart, ownership and atomic acceptance.

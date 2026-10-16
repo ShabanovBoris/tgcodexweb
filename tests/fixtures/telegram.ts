@@ -1,6 +1,8 @@
+import type { AttachmentService } from "../../src/application/AttachmentService";
 import { ConversationService } from "../../src/application/ConversationService";
 import { RequestService } from "../../src/application/RequestService";
 import { createLogger } from "../../src/logging/logger";
+import { SqliteAttachmentBatchRepository } from "../../src/persistence/sqlite/SqliteAttachmentBatchRepository";
 import { FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
 import type {
   TelegramApi,
@@ -8,6 +10,7 @@ import type {
   TelegramUpdate,
 } from "../../src/transports/telegram/TelegramApi";
 import { TelegramBot } from "../../src/transports/telegram/TelegramBot";
+import { TelegramFileCollector } from "../../src/transports/telegram/TelegramFileCollector";
 import { later, type QueueFixture } from "./queue";
 
 export class FakeTelegramApi implements TelegramApi {
@@ -23,6 +26,9 @@ export class FakeTelegramApi implements TelegramApi {
     this.sent.push(input);
     const error = this.sendFailure?.(input);
     if (error) throw error;
+  }
+  async *downloadFile(_fileId: string, _maxBytes: number): AsyncIterable<Uint8Array> {
+    yield await Promise.reject(new Error("FAKE_FILE_NOT_CONFIGURED"));
   }
 }
 
@@ -42,6 +48,7 @@ export function setupTelegram(
   f: QueueFixture,
   provider = new FakeChatProvider(),
   allowedUserIds = ["123", "456"],
+  attachments?: AttachmentService,
 ) {
   const api = new FakeTelegramApi();
   const logs: string[] = [];
@@ -53,6 +60,7 @@ export function setupTelegram(
     queueRepository: f.store,
     requests: f.requests,
     provider,
+    attachments,
     options: { maxPendingPerConversation: 3, generationTimeoutMs: 600000 },
     now: () => later,
     onResult: (result) => bot.result(result),
@@ -85,6 +93,18 @@ export function setupTelegram(
     now: () => later,
     newRequestId: () => `r${++id}`,
     log: createLogger({ sink: (line) => logs.push(line) }),
+    files: attachments
+      ? new TelegramFileCollector({
+          service: attachments,
+          batches: new SqliteAttachmentBatchRepository(f.database),
+          mappings: f.conversations,
+          api,
+          fileUpload: provider.capabilities.fileUpload,
+          ttlMs: 86400000,
+          now: () => later,
+          newId: () => `r${++id}`,
+        })
+      : undefined,
   });
   return {
     bot,

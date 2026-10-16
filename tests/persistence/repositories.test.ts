@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { Database } from "bun:sqlite";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -420,7 +420,7 @@ describe("R1 repositories", () => {
     );
     database.close(true);
     open(legacy.path);
-    expect(migrateDatabase(database)).toBe(3);
+    expect(migrateDatabase(database)).toBe(4);
     expect(operationalRows()).toEqual(rows);
     expect(database.query("SELECT * FROM schema_migrations WHERE version=1").all()).toEqual(ledger);
     expect(database.query("SELECT name FROM sqlite_temp_master WHERE type='table'").all()).toEqual(
@@ -491,7 +491,7 @@ describe("R1 repositories", () => {
     database.close(true);
     open(legacy.path);
     expect(operationalRows()).toEqual(rows);
-    expect(migrateDatabase(database)).toBe(3);
+    expect(migrateDatabase(database)).toBe(4);
     expect(operationalRows()).toEqual(rows);
   });
 
@@ -674,7 +674,7 @@ describe("R1 repositories", () => {
       .filter((name) => name.endsWith(".sql"))
       .reverse())
       copyFileSync(join(production, name), join(migrations, name));
-    expect(migrateDatabase(database, migrations)).toBe(4);
+    expect(migrateDatabase(database, migrations)).toBe(5);
     expect(
       database.query("SELECT type,name,sql FROM sqlite_master ORDER BY type,name").all(),
     ).toEqual(freshSchema);
@@ -694,6 +694,8 @@ describe("R1 repositories", () => {
       .map((row) => row.name);
     expect(names).toEqual([
       "active_conversations",
+      "attachment_batch_items",
+      "attachment_batches",
       "attachments",
       "conversations",
       "processed_updates",
