@@ -31,7 +31,7 @@ function native() {
       text: "synthetic answer",
       messageId: "accepted-assistant-turn",
     }),
-    loginPage: async () => {},
+    login: async () => {},
     close: async () => {},
   };
   return { session, sends };

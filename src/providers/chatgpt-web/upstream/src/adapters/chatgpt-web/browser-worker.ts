@@ -4011,11 +4011,21 @@ export class ChatGptBrowserWorker {
     await input.waitFor({ state: "attached", timeout: 20_000 });
     await input.setInputFiles(files);
     try {
-      await Promise.all(files.map(file => (
-        composerForm.getByRole("group", { name: file.name, exact: true })
-          .or(composerForm.locator(`.composer-attachment-surface:is(button, [role="button"])[aria-label=${JSON.stringify(file.name)}]`))
-          .waitFor({ state: "visible", timeout: 60_000 })
-      )));
+      const expected = new Map<string, number>();
+      for (const file of files) expected.set(file.name, (expected.get(file.name) ?? 0) + 1);
+      const deadline = Date.now() + 60_000;
+      for (;;) {
+        const accepted = await withChatGptBrowserObservationTimeout(Promise.all([...expected].map(async ([name, count]) => {
+          const groups = composerForm.getByRole("group", { name, exact: true }).filter({ visible: true });
+          const surfaces = composerForm.locator(`.composer-attachment-surface:is(button, [role="button"])[aria-label=${JSON.stringify(name)}]`).filter({ visible: true });
+          // Each UI representation must independently prove multiplicity; a nested button and
+          // its group cannot stand for two files with the same name.
+          return await groups.count() >= count || await surfaces.count() >= count;
+        })));
+        if (accepted.every(Boolean)) break;
+        if (Date.now() >= deadline) throw new Error("ChatGPT prompt attachment count is incomplete");
+        await new Promise(resolveSleep => setTimeout(resolveSleep, 100));
+      }
     } catch {
       const alerts = (await page.locator('[role="alert"]').allInnerTexts().catch(() => []))
         .map(text => text.replace(/\s+/g, " ").trim())

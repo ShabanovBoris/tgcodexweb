@@ -14,7 +14,7 @@ alone cannot satisfy this gateway's existing-conversation and dedicated-profile 
 
 `src/providers/chatgpt-web/upstream` contains the 31-file browser-worker import
 closure, its type declaration, the launcher authentication probe, and MIT license.
-`UPSTREAM.json` records every original Git blob SHA, the two patched files, added
+`UPSTREAM.json` records every original Git blob SHA, the three patched files, added
 gateway files, final SHA-256 values and exact dependency versions from upstream's lock.
 The provenance test detects unlisted changes. Original files are not reformatted.
 The gateway extension is formatted/linted and the complete closure is typechecked.
@@ -23,6 +23,9 @@ The fork adds `ChatGptBrowserWorker.forGateway`, exporting its existing composer
 upload, semantic turn baseline, DOM snapshot and Markdown primitives to an owned
 `GatewayBrowserSession`. It extends the existing upload primitive to accept native
 file payloads. The original completion tracker and DOM extraction remain reused.
+Upload acknowledgement checks the required count for each filename within each UI
+representation independently. Two chips with the same name are accepted; one chip
+represented by both a group and a button cannot acknowledge two files.
 The authentication probe can execute wholly inside the owned page and returns only
 its existing authenticated/error projection. No account or auth payload reaches Node.
 Gateway composer readback preserves leading whitespace; the Codex path keeps its
@@ -61,6 +64,16 @@ export/import, profile handoff, or copying from another project. Interactive log
 normal operation use this same profile. Provider construction follows Telegram token
 validation; shutdown joins the application service before closing the browser.
 
+Manual login reuses the pinned upstream's normal Chrome launch, extracted into an
+owned-child helper. It waits for complete browser exit before verification; cancellation
+terminates and joins only that child. The gateway never calls upstream's authentication
+export path. Subsequent native sessions omit Playwright's mock-keychain/basic-password
+defaults, matching upstream's login verifier and preserving the browser's native keys.
+The manual process has no automation or remote-debugging flags. This follows the
+upstream authentication path. The operator's dedicated login subsequently passed real
+health before/after restart; the one authorized prompt/PDF also completed. See the
+verification receipt for the original answer-format comparison failure and its diagnosis.
+
 Read-only health verifies `/api/auth/session` using the upstream authenticated-session
 probe and requires one editable composer. Missing authentication is AUTH_REQUIRED;
 network/malformed/session-check/browser failures are unavailable. No diagnostic uploads
@@ -86,5 +99,6 @@ through the existing contract. Enabling cancellation/parallelism requires eviden
 Normal tests remain offline. `test:browser` is explicit, uses real pinned Chromium with
 synthetic DOM/authentication, and intercepts every URL. It cannot prove live selectors,
 account access, upload processing or ChatGPT completion behavior. `test:live` is a separate
-operator opt-in; sending additionally requires `TGWEBGPT_LIVE_SEND=1`. Login, live receipts
-and independent review of a published R6 SHA are still required before R6 exit acceptance.
+operator opt-in; sending additionally requires `TGWEBGPT_LIVE_SEND=1`. The bounded live
+receipt is recorded separately from synthetic tests. Remaining acceptance checks and
+independent review of the final published R6 SHA are still required before R6 exit acceptance.

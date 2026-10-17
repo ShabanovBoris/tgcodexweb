@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Page } from "playwright-core";
 import { loadConfig } from "../../src/config/Config";
 import { createLogger } from "../../src/logging/logger";
 import { privateChatPolicy } from "../../src/main";
@@ -34,6 +35,10 @@ describe.skipIf(process.env.TGWEBGPT_BROWSER_TEST !== "1")(
     test("AUTH_REQUIRED differs from malformed/unreachable session and health submits nothing", async () => {
       fixture.auth = "missing";
       expect((await provider.health()).state).toBe("auth_required");
+      expect(fixture.launchOptions?.ignoreDefaultArgs).toEqual([
+        "--password-store=basic",
+        "--use-mock-keychain",
+      ]);
       await expect(provider.createConversation()).rejects.toThrow("AUTH_REQUIRED");
       fixture.auth = "malformed";
       expect((await provider.health()).state).toBe("unavailable");
@@ -120,6 +125,133 @@ describe.skipIf(process.env.TGWEBGPT_BROWSER_TEST !== "1")(
       }
       expect(fixture.submissions).toHaveLength(1);
       file.release();
+    }, 30_000);
+
+    test("duplicate filenames preserve both file payloads and produce one completed Send", async () => {
+      const store = new LocalAttachmentStore(join(root, "files"));
+      await store.initialize();
+      await provider.close();
+      provider = fixture.provider(store);
+      const files = [];
+      for (const text of ["%PDF-1.4\nfirst\n%%EOF", "%PDF-1.4\nsecond\n%%EOF"]) {
+        const bytes = Buffer.from(text);
+        const stored = await store.put(
+          (async function* () {
+            yield bytes;
+          })(),
+          100,
+        );
+        files.push({ bytes, stored });
+      }
+      try {
+        const created = await provider.createConversation();
+        const submission = (await provider.send({
+          conversationId: created.id,
+          clientRequestId: "duplicate-filenames",
+          text: "two files, same name",
+          attachments: files.map(({ bytes, stored }) => ({
+            storageKey: stored.key,
+            filename: "report.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: bytes.length,
+          })),
+        })) as ProviderSubmission;
+        expect(submission.state).toBe("submitted");
+        expect(fixture.uploads).toBe(1);
+        expect(fixture.submissions).toEqual([
+          {
+            text: "two files, same name",
+            path: "/",
+            files: files.map(({ bytes }) => ({
+              name: "report.pdf",
+              mimeType: "application/pdf",
+              base64: bytes.toString("base64"),
+            })),
+          },
+        ]);
+        expect(
+          await fixture.mutationPage
+            ?.getByRole("group", { name: "report.pdf", exact: true })
+            .count(),
+        ).toBe(2);
+        await fixture.finish();
+        expect(
+          (
+            await provider.awaitCompletion({
+              submission,
+              signal: AbortSignal.timeout(10_000),
+            })
+          ).state,
+        ).toBe("completed");
+        expect(fixture.submissions).toHaveLength(1);
+      } finally {
+        for (const { stored } of files) stored.release();
+      }
+    }, 30_000);
+
+    test("one chip with two UI representations waits for the second same-name file", async () => {
+      const store = new LocalAttachmentStore(join(root, "files"));
+      await store.initialize();
+      await provider.close();
+      provider = fixture.provider(store);
+      fixture.uploadChipLimit = 1;
+      fixture.nestedUploadSurface = true;
+      const uploaded = new Promise<Page>((resolve) => {
+        fixture.onUpload = resolve;
+      });
+      const files = [];
+      for (const text of ["first", "second"]) {
+        const bytes = Buffer.from(text);
+        const stored = await store.put(
+          (async function* () {
+            yield bytes;
+          })(),
+          100,
+        );
+        files.push({ bytes, stored });
+      }
+      try {
+        const conversation = await provider.createConversation();
+        const sending = provider.send({
+          conversationId: conversation.id,
+          clientRequestId: "incomplete-duplicate-chips",
+          text: "two files required",
+          attachments: files.map(({ bytes, stored }) => ({
+            storageKey: stored.key,
+            filename: "report.txt",
+            mimeType: "text/plain",
+            sizeBytes: bytes.length,
+          })),
+        });
+        const page = await uploaded;
+        const groups = page.getByRole("group", { name: "report.txt", exact: true });
+        await groups.first().waitFor({ state: "visible" });
+        expect(await groups.count()).toBe(1);
+        expect(await page.locator(".composer-attachment-surface").count()).toBe(1);
+        expect(
+          await page
+            .locator('input[type="file"]')
+            .evaluate((input) => (input as HTMLInputElement).files?.length),
+        ).toBe(2);
+        // A single chip in both UI representations must not acknowledge both file payloads.
+        await Bun.sleep(250);
+        expect(fixture.submissions).toHaveLength(0);
+        await page.evaluate(() => {
+          const chip = document.querySelector('#uploads [role="group"]');
+          if (!chip?.parentElement) throw new Error("Fixture attachment chip missing");
+          chip.parentElement.append(chip.cloneNode(true));
+        });
+        const submission = (await sending) as ProviderSubmission;
+        expect(submission.state).toBe("submitted");
+        expect(fixture.submissions).toHaveLength(1);
+        await fixture.finish();
+        expect(
+          (await provider.awaitCompletion({ submission, signal: AbortSignal.timeout(10_000) }))
+            .state,
+        ).toBe("completed");
+      } finally {
+        for (const { stored } of files) stored.release();
+      }
     }, 30_000);
 
     test("inaccessible conversations are rejected and a foreign new turn cannot complete this request", async () => {

@@ -132,8 +132,11 @@ bun --env-file=.env run provider:health
 bun --env-file=.env run start --private
 ```
 
-`browser:login` requires a terminal, opens only the dedicated profile, and checks login
-when Enter is pressed. Neither login nor `provider:health` requires a Telegram token.
+`browser:login` requires a terminal and opens a normal Chrome window with only the
+dedicated profile. Complete sign-in until ChatGPT shows your account and composer,
+then quit that Chrome instance completely (Cmd+Q on macOS). The command waits for
+the browser to exit and automatically checks the saved session. Neither login nor
+`provider:health` requires a Telegram token.
 Use a new empty directory initially: populated profiles without this gateway's ownership
 marker are refused. Never copy another browser's profile, cookies or storage-state file.
 The profile remains exclusively owned by one browser process, so stop the service before

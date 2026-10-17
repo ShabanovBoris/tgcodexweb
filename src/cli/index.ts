@@ -1,5 +1,4 @@
 import { checkToolchain, ToolchainError } from "../../scripts/check-toolchain";
-import { createInterface } from "node:readline/promises";
 import {
   ConfigError,
   type Environment,
@@ -95,12 +94,11 @@ export async function runCli(
         const stop = () => controller.abort();
         process.on("SIGINT", stop);
         process.on("SIGTERM", stop);
-        const readline = createInterface({ input: process.stdin, output: process.stdout });
         try {
-          await provider.login();
-          await readline.question("Sign in in the dedicated browser, then press Enter here. ", {
-            signal: controller.signal,
-          });
+          process.stdout.write(
+            "Sign in to ChatGPT in the dedicated Chrome window, confirm the composer, then quit that Chrome instance completely.\n",
+          );
+          await provider.login(controller.signal);
           const health = await provider.health();
           log("info", { operation: "browser.login_checked", providerState: health.state });
           return health.state === "ready" ? 0 : 1;
@@ -108,7 +106,6 @@ export async function runCli(
           if (controller.signal.aborted) return 0;
           throw error;
         } finally {
-          readline.close();
           process.off("SIGINT", stop);
           process.off("SIGTERM", stop);
           await provider.close();

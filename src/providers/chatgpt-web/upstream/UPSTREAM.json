@@ -145,17 +145,21 @@
   "patches": [
     {
       "path": "src/adapters/chatgpt-web/browser-worker.ts",
-      "sha256": "33d436bc4937dcb199554fcf17e41d4d3b405ed9de5ebeb47dc0fcc2394850d8"
+      "sha256": "fdadb0217ea319e85095fec278e5f3b7f26ca9b07d13bde6dfd156754ec74335"
     },
     {
       "path": "launcher/electron/chatgpt-auth-session.cjs",
       "sha256": "ce145c10d0e76ea65d77b980c3c4727bd57202950397a839b03c03d76afb3f23"
+    },
+    {
+      "path": "src/browser-login.ts",
+      "sha256": "7cdaa1eb0b94550f42577d58a5243e1627c41e803126a23272b34be9d77f837c"
     }
   ],
   "additions": [
     {
       "path": "src/adapters/chatgpt-web/gateway-session.ts",
-      "sha256": "d40b5bee742a367c26749c501006da4e71e9ff9d62b3b5f96fba3262eae10c4d"
+      "sha256": "bb37456a53c6883c7f48b56bb09d3a034ceb9b92d4f1e8741dd85a6b0181a215"
     },
     {
       "path": "launcher/electron/chatgpt-auth-session.d.cts",

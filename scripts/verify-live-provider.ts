@@ -100,7 +100,11 @@ if (
         if (outcome.state === "completed") {
           receipt.answerSha256 = hash(outcome.message.text);
           receipt.answerCharacters = outcome.message.text.length;
-          receipt.answerMatchesExpected = outcome.message.text.trim() === "4 TGWEBGPT_R6_PDF_OK";
+          const expected = "4 TGWEBGPT_R6_PDF_OK";
+          // Upstream returns Markdown; Turndown escapes underscores in ordinary text.
+          receipt.answerMatchesExpected = [expected, expected.replaceAll("_", "\\_")].includes(
+            outcome.message.text.trim(),
+          );
         }
         const registry = new BrowserProfile(browser.profileDir);
         registry.initialize();

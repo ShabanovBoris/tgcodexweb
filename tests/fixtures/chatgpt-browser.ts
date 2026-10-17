@@ -6,10 +6,14 @@ import type { AttachmentStore } from "../../src/ports/AttachmentStore";
 export const fixtureRemote = "00000000-0000-4000-8000-000000000001";
 export class BrowserFixture {
   context?: BrowserContext;
+  launchOptions?: Parameters<typeof chromium.launchPersistentContext>[1];
   mutationPage?: Page;
   auth: "ready" | "missing" | "malformed" | "cookie" = "ready";
   dropAfterSubmit = false;
   failUpload = false;
+  uploadChipLimit?: number;
+  nestedUploadSurface = false;
+  onUpload?: (page: Page) => void;
   autoComplete = false;
   submissions: {
     text: string;
@@ -29,7 +33,13 @@ export class BrowserFixture {
       executablePath: this.executablePath,
       headless: true,
       launch: async (path, options) => {
-        const context = await chromium.launchPersistentContext(path, options);
+        this.launchOptions = options;
+        // Synthetic authentication must stay independent of the operator's OS keychain.
+        // Production launch options are recorded/asserted before this fixture-only override.
+        const context = await chromium.launchPersistentContext(path, {
+          ...options,
+          ignoreDefaultArgs: [],
+        });
         this.context = context;
         await context.route("**/*", async (route) => {
           const request = route.request();
@@ -71,8 +81,13 @@ export class BrowserFixture {
             this.uploads++;
             await route.fulfill({
               contentType: "application/json",
-              body: JSON.stringify({ fail: this.failUpload }),
+              body: JSON.stringify({
+                fail: this.failUpload,
+                chipLimit: this.uploadChipLimit,
+                nestedSurface: this.nestedUploadSurface,
+              }),
             });
+            this.onUpload?.(request.frame().page());
             if (this.failUpload) await request.frame().page().close();
           } else if (url.pathname === "/" || url.pathname === `/c/${fixtureRemote}`) {
             await route.fulfill({
@@ -97,7 +112,7 @@ export class BrowserFixture {
       const form=document.querySelector('form'), composer=document.querySelector('#prompt-textarea'), input=document.querySelector('input'), historyRoot=document.querySelector('#history');
       // Track browser input events as editor state: innerText adds layout-only newlines to empty blocks.
       let promptValue=''; composer.addEventListener('input',event=>{promptValue+=event.data??'\\n';});
-      input.addEventListener('change', async()=>{ const result=await (await fetch('/fixture/upload')).json(); if(result.fail){ window.close(); return; } for(const file of input.files){ const group=document.createElement('div'); group.setAttribute('role','group'); group.setAttribute('aria-label',file.name); group.textContent=file.name; document.querySelector('#uploads').append(group); } });
+      input.addEventListener('change', async()=>{ const result=await (await fetch('/fixture/upload')).json(); if(result.fail){ window.close(); return; } for(const file of [...input.files].slice(0,result.chipLimit)){ const group=document.createElement('div'); group.setAttribute('role','group'); group.setAttribute('aria-label',file.name); group.textContent=file.name; if(result.nestedSurface){const surface=document.createElement('button');surface.className='composer-attachment-surface';surface.setAttribute('aria-label',file.name);surface.textContent=file.name;group.append(surface);} document.querySelector('#uploads').append(group); } });
       form.addEventListener('submit',async event=>{event.preventDefault(); const files=[]; for(const file of input.files){const bytes=new Uint8Array(await file.arrayBuffer()); files.push({name:file.name,mimeType:file.type,base64:btoa(String.fromCharCode(...bytes))});} const result=await (await fetch('/fixture/submit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:promptValue,files,path:location.pathname})})).json(); if(result.drop){window.close();return;} history.replaceState({},'', '/c/'+result.remote); composer.textContent='';
       historyRoot.insertAdjacentHTML('beforeend','<article data-turn-id-container="new-user"><section data-testid="conversation-turn-2" data-turn="user" data-turn-id="new-user">accepted user</section></article><article data-turn-id-container="new-answer"><section data-testid="conversation-turn-3" data-turn="assistant" data-turn-id="new-answer"><div class="markdown"><p>partial answer</p></div></section></article>'); const stop=document.createElement('button'); stop.dataset.testid='stop-button'; stop.textContent='Stop'; document.body.append(stop); if(result.autoComplete)setTimeout(()=>window.fixtureFinish(),50); });
       window.fixtureFinish=()=>{document.querySelector('[data-testid="stop-button"]')?.remove();const answer=document.querySelector('[data-turn-id="new-answer"]');answer.querySelector('.markdown').innerHTML='<p>final answer</p><pre><code>const x = 1;</code></pre>'; answer.insertAdjacentHTML('beforeend','<button data-testid="copy-turn-action-button">Copy</button>');};

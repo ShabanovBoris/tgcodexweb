@@ -10,6 +10,7 @@ test("local fork preserves the exact upstream sources except the enumerated gate
   expect(manifest.patches.map((item) => item.path).sort()).toEqual([
     "launcher/electron/chatgpt-auth-session.cjs",
     "src/adapters/chatgpt-web/browser-worker.ts",
+    "src/browser-login.ts",
   ]);
   const root = join(import.meta.dir, "../../src/providers/chatgpt-web/upstream");
   const patches = new Map(manifest.patches.map((item) => [item.path, item.sha256]));

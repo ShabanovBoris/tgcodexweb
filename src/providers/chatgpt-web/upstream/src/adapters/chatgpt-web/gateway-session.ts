@@ -1,5 +1,6 @@
 import { chromium, type BrowserContext, type Locator, type Page } from "playwright-core";
 import { readChatGptAuthSession } from "../../../launcher/electron/chatgpt-auth-session.cjs";
+import { openNormalBrowserLogin } from "../../browser-login";
 import {
   CHATGPT_COMPOSER_SELECTOR,
   CHATGPT_SEND_BUTTON_SELECTOR,
@@ -113,6 +114,8 @@ export class GatewayBrowserSession {
           headless: this.options.headless === true,
           timeout: 30_000,
           acceptDownloads: false,
+          // Match upstream's verifier after normal manual login; keep the browser's native keys.
+          ignoreDefaultArgs: ["--password-store=basic", "--use-mock-keychain"],
         });
         context.setDefaultTimeout(20_000);
         context.on("close", () => {
@@ -140,7 +143,18 @@ export class GatewayBrowserSession {
     if (!result.sessionAuthenticated) throw new GatewayBrowserError("auth_required");
   }
 
-  async loginPage(): Promise<void> {
+  async login(signal?: AbortSignal): Promise<void> {
+    if (this.closed || this.context || this.opening || !this.options.executablePath)
+      throw new GatewayBrowserError("unavailable");
+    await openNormalBrowserLogin({
+      executablePath: this.options.executablePath,
+      profileDir: this.options.profileDir,
+      startUrl: "https://chatgpt.com/",
+      signal,
+    });
+  }
+
+  private async ensureProbePage(): Promise<void> {
     if (!this.probe || this.probe.isClosed()) {
       this.probe = await (await this.browser()).newPage();
       await this.probe.goto("https://chatgpt.com/", {
@@ -152,7 +166,7 @@ export class GatewayBrowserSession {
 
   async health(): Promise<"ready" | "auth_required" | "unavailable"> {
     try {
-      await this.loginPage();
+      await this.ensureProbePage();
       const probe = this.probe;
       if (!probe) return "unavailable";
       await this.authenticate(probe);

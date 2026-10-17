@@ -28,7 +28,7 @@ export type NativeChatGptSession = Pick<
   | "inspectConversation"
   | "send"
   | "observe"
-  | "loginPage"
+  | "login"
   | "close"
 >;
 const preSubmitCode = (code: GatewayCode) =>
@@ -194,9 +194,9 @@ export class ChatGptWebProvider implements ChatProvider {
     };
   }
 
-  async login(): Promise<void> {
+  async login(signal?: AbortSignal): Promise<void> {
     this.profile.initialize(true);
-    await this.safe(() => this.session.loginPage());
+    await this.safe(() => this.session.login(signal));
   }
 
   async close(): Promise<void> {

@@ -370,6 +370,39 @@ export async function captureSystemBrowserLoginToFile(
   atomicWriteFile(markerPath, `${JSON.stringify(capture.marker)}\n`);
 }
 
+/** Gateway fork: normal manual login in an owned profile, without exporting authentication. */
+export async function openNormalBrowserLogin(options: {
+  executablePath: string;
+  profileDir: string;
+  startUrl: string;
+  signal?: AbortSignal;
+}): Promise<void> {
+  if (options.signal?.aborted) throw new DOMException("Browser login aborted", "AbortError");
+  const loginBrowser = spawn(options.executablePath, [
+    `--user-data-dir=${options.profileDir}`,
+    "--new-window",
+    "--disable-background-mode",
+    "--no-first-run",
+    "--no-default-browser-check",
+    options.startUrl,
+  ], { env: process.env, stdio: "ignore" });
+  await new Promise<void>((resolveExit, rejectExit) => {
+    let failure: Error | undefined;
+    const abort = () => { loginBrowser.kill("SIGTERM"); };
+    loginBrowser.once("error", error => { failure = error; });
+    loginBrowser.once("close", (code, signal) => {
+      options.signal?.removeEventListener("abort", abort);
+      if (options.signal?.aborted) rejectExit(new DOMException("Browser login aborted", "AbortError"));
+      else if (failure) rejectExit(failure);
+      else if (signal) rejectExit(new Error(`Normal Chrome login window exited from signal ${signal}`));
+      else if (code !== 0) rejectExit(new Error(`Normal Chrome login window exited with status ${code ?? 1}`));
+      else resolveExit();
+    });
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) abort();
+  });
+}
+
 export async function loginToChatGpt(
   config: AppConfig,
   options: { timeoutMs?: number } = {},
@@ -382,22 +415,11 @@ export async function loginToChatGpt(
   process.stdout.write(
     "A normal Chrome window is open. Sign in to ChatGPT, confirm that the composer is visible, then quit this dedicated Chrome instance completely.\n",
   );
-  const loginBrowser = spawn(config.chromeExecutablePath, [
-    `--user-data-dir=${profileDir}`,
-    "--new-window",
-    "--disable-background-mode",
-    "--no-first-run",
-    "--no-default-browser-check",
-    CHATGPT_TEMPORARY_CHAT_URL,
-  ], { env: process.env, stdio: "ignore" });
-  const loginExit = await new Promise<number>((resolveExit, rejectExit) => {
-    loginBrowser.once("error", rejectExit);
-    loginBrowser.once("exit", (code, signal) => {
-      if (signal) rejectExit(new Error(`Normal Chrome login window exited from signal ${signal}`));
-      else resolveExit(code ?? 1);
-    });
+  await openNormalBrowserLogin({
+    executablePath: config.chromeExecutablePath,
+    profileDir,
+    startUrl: CHATGPT_TEMPORARY_CHAT_URL,
   });
-  if (loginExit !== 0) throw new Error(`Normal Chrome login window exited with status ${loginExit}`);
 
   const context = await chromium.launchPersistentContext(profileDir, {
     executablePath: config.chromeExecutablePath,
