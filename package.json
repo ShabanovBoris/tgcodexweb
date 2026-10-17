@@ -21,14 +21,23 @@
     "start": "bun run src/cli/index.ts start",
     "bootstrap": "bun run src/cli/index.ts bootstrap",
     "start:fake": "bun run src/cli/index.ts start:fake",
+    "browser:login": "bun run src/cli/index.ts browser:login",
+    "provider:health": "bun run src/cli/index.ts provider:health",
+    "test:browser": "bun run scripts/test-browser.ts",
+    "test:live": "bun run scripts/verify-live-provider.ts",
     "verify": "bun run scripts/verify.ts"
   },
   "dependencies": {
+    "playwright-core": "1.62.0",
+    "tiktoken": "1.0.22",
+    "turndown": "7.2.0",
+    "turndown-plugin-gfm": "1.0.2",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@types/bun": "1.4.0",
+    "@types/turndown": "5.0.5",
     "typescript": "5.9.3"
   }
 }

@@ -1,4 +1,4 @@
-# TG WebGPT Gateway — R5 attachments
+# TG WebGPT Gateway — R6 provider implementation
 
 This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
@@ -15,9 +15,12 @@ The repository includes the R0 shell, R1 domain/persistence, R2 durable acceptan
 and keyed queue, and R3 application-owned provider contract, deterministic fake and
 request lifecycle service. R4 adds conversation commands, Telegram HTTP polling,
 allowlist checks, progress, safe response splitting and delivery fallback. R5 adds bounded file downloads, isolated temporary storage and durable albums with
-explicit `/send` and `/discard`. R6 and later phases are not implemented. See
-[R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md) and
-[R3 evidence](docs/verification/R3.md) and [R4 evidence](docs/verification/R4.md) and [R5 evidence](docs/verification/R5.md).
+explicit `/send` and `/discard`. R6 adds a local fork of the pinned upstream browser worker,
+dedicated persistent profiles and the real provider path; live acceptance remains pending.
+R7/R8 are not complete. See
+[R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md),
+[R3 evidence](docs/verification/R3.md), [R4 evidence](docs/verification/R4.md),
+[R5 evidence](docs/verification/R5.md) and [R6 evidence](docs/verification/R6.md).
 
 ## Prerequisites and install
 
@@ -47,7 +50,10 @@ temporary directories and make no Telegram/ChatGPT requests. Package installatio
 requires access to the package registry; verification after installation is offline.
 
 The exact upstream/toolchain evidence and integration limits are recorded in
-[ADR 0001](docs/adr/0001-r0-toolchain.md). `codex-chatgpt-web` is not a dependency.
+[ADR 0001](docs/adr/0001-r0-toolchain.md) and
+[ADR 0002](docs/adr/0002-r6-local-browser-fork.md). The browser-worker source subset is
+vendored with its original blob hashes and license; its runtime packages are declared
+and pinned in this repository.
 
 ## Local configuration
 
@@ -77,6 +83,8 @@ creating the database. Errors list field names and fixed reasons, never input va
 | `PROVIDER_TYPE` | `chatgpt-web` only |
 | `DATABASE_PATH` | `./data/gateway.sqlite` |
 | `BROWSER_PROFILE_DIR` | `./data/browser-profile` |
+| `BROWSER_EXECUTABLE_PATH` | Optional absolute or project-relative Chromium/Chrome executable; default is upstream's system Chrome path |
+| `BROWSER_HEADLESS` | `false`; interactive login always uses a visible browser |
 | `GENERATION_TIMEOUT_MS` | `600000` |
 | `MAX_PENDING_PER_CONVERSATION` | `20` |
 | `ATTACHMENT_TEMP_DIR` | `./data/tmp` |
@@ -102,9 +110,56 @@ validates configuration, initializes/migrates SQLite, logs `bootstrap.complete` 
 closes the connection. Success exits 0; it never reports `READY`. `LOG_LEVEL=warn`
 or `error` suppresses the informational success log.
 
-`start` validates configuration and currently fails with
-`PROVIDER_UNAVAILABLE / adapter_not_implemented`. The real ChatGPT Web adapter is R6;
-this command cannot silently select the fake provider or claim bot readiness.
+`start --private` runs the real provider. It never falls back to fake. Like fake mode,
+it requires explicit private-chat policy; Telegram token validation precedes database
+and browser startup. Profile storage must be separate from attachment storage and
+must not contain the application database.
+
+Install a Chromium-compatible browser and set `BROWSER_EXECUTABLE_PATH` if system Chrome
+is absent. A reproducible option is the browser revision associated with the pinned
+Playwright package (the recorded synthetic browser tests use Chromium 151.0.7922.34):
+
+```sh
+PLAYWRIGHT_BROWSERS_PATH="$PWD/data/playwright-browsers" bun --no-env-file node_modules/playwright-core/cli.js install chromium
+PLAYWRIGHT_BROWSERS_PATH="$PWD/data/playwright-browsers" bun --no-env-file -e 'import {chromium} from "playwright-core"; console.log(chromium.executablePath())'
+```
+
+Put the printed executable path in local configuration. Then, with the bot stopped:
+
+```sh
+bun --env-file=.env run browser:login
+bun --env-file=.env run provider:health
+bun --env-file=.env run start --private
+```
+
+`browser:login` requires a terminal, opens only the dedicated profile, and checks login
+when Enter is pressed. Neither login nor `provider:health` requires a Telegram token.
+Use a new empty directory initially: populated profiles without this gateway's ownership
+marker are refused. Never copy another browser's profile, cookies or storage-state file.
+The profile remains exclusively owned by one browser process, so stop the service before
+running login in a second process. Browser/session failures return fixed codes only.
+
+`/new` initializes a saved-chat draft without sending a seed message. Its opaque provider
+ID remains stable; the first actual prompt binds its remote URL. `/add` supports a ChatGPT
+UUID or `https://chatgpt.com/c/<uuid>` and verifies that the owned browser can render that
+exact existing chat. Registering a newly created chat again converges on the same key.
+This fork advertises one active conversation and no confirmed cancellation capability;
+`/stop` reports unsupported. UNKNOWN blocks dispatch and is never automatically replayed.
+
+All standard verification is offline. To run the separate real-Chromium/synthetic-site
+profile, set `TGWEBGPT_TEST_BROWSER` to an installed Chromium executable and run
+`bun run test:browser`. Every URL is intercepted; no live ChatGPT account is used.
+Actual ChatGPT checks require explicit operator opt-in after login:
+
+```sh
+TGWEBGPT_LIVE=1 bun --env-file=.env run test:live health
+TGWEBGPT_LIVE=1 TGWEBGPT_LIVE_SEND=1 bun --env-file=.env run test:live roundtrip
+```
+
+The second command intentionally creates one saved chat and sends one synthetic prompt
+with a synthetic attachment. Receipts contain states and hashes, never credentials or
+full conversation content. A local browser test is not a live acceptance receipt. R6's
+live exit criteria and the overall MVP acceptance pass remain pending.
 
 To explicitly run a development bot against the real Telegram transport and a synthetic
 provider, use your own test bot token and allowlist:
@@ -117,7 +172,8 @@ This command connects to Telegram. It has not been run with live credentials in 
 verification. `--private` is required: only allowlisted non-bot senders in their matching
 private chat are handled; groups, channels, anonymous senders and other update types are
 silent. The group policy is an open product decision. All automated tests inject an
-offline Telegram API and use FakeChatProvider.
+offline Telegram API. Standard transport tests use FakeChatProvider; the opt-in browser
+suite also exercises the real fork against synthetic intercepted pages.
 
 Fake mode displays `FAKE (development)` in `/start` and `/status`. It uses a separate
 database next to `DATABASE_PATH`, with `fake-` prefixed to the basename (default:

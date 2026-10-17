@@ -13,6 +13,20 @@
     "indentWidth": 2,
     "lineWidth": 100
   },
+  "overrides": [
+    {
+      "includes": ["src/providers/chatgpt-web/upstream/**"],
+      "formatter": { "enabled": false },
+      "linter": { "enabled": false }
+    },
+    {
+      "includes": [
+        "src/providers/chatgpt-web/upstream/src/adapters/chatgpt-web/gateway-session.ts"
+      ],
+      "formatter": { "enabled": true },
+      "linter": { "enabled": true }
+    }
+  ],
   "linter": {
     "rules": {
       "preset": "recommended"

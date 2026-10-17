@@ -650,7 +650,8 @@ the minimum lifecycle needed for a running R4 transport, not full R7 operational
 
 Fake mode uses a separate database with a `fake-` basename prefix and a clearly labelled
 status. It does not use the real database/profile or represent real remote history.
-`start` reports the missing R6 adapter; `bootstrap` retains the old one-shot maintenance.
+R6 wires `start --private` to the real provider and retains token validation before
+provider construction. `bootstrap` retains the one-shot maintenance.
 
 ---
 
@@ -756,6 +757,21 @@ Forbidden:
 - logging browser storage state.
 
 The operator may need one interactive local login bootstrap.
+
+R6's user-selected local fork uses its own `launchPersistentContext` and an ownership
+marker, without importing/exporting cookies. `browser:login` and the real runtime share
+this dedicated profile. Nonempty foreign profiles and symlink roots/metadata are rejected.
+Its private identity registry stores initialized opaque handles and remote IDs only. A
+new saved-chat draft has no remote URL until its first submitted user prompt; binding
+preserves the original opaque queue key and `/add` converges on it after restart. See
+[ADR 0002](docs/adr/0002-r6-local-browser-fork.md) for the fork/evidence boundary.
+
+The R6 gateway capability is one conversation and no confirmed cancellation. Health uses
+the upstream authenticated-session probe and a ready composer, with no prompt/upload.
+Completion reuses the upstream logical-turn baseline, DOM extraction, stable final-action
+tracker and Markdown buffer. Interrupted observation returns UNKNOWN without Stop or
+replay; restart has no in-memory correlation. Local browser fixtures do not satisfy live
+acceptance, which remains explicitly opt-in.
 
 ---
 

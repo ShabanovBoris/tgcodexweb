@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { ConfigError, loadConfig, loadDatabaseConfig } from "../../src/config/Config";
+import {
+  ConfigError,
+  loadConfig,
+  loadDatabaseConfig,
+  loadBrowserConfig,
+} from "../../src/config/Config";
 
 const environment = {
   TELEGRAM_BOT_TOKEN: "r0-fixture-token",
@@ -8,6 +13,26 @@ const environment = {
 };
 
 describe("configuration", () => {
+  test("browser bootstrap needs no Telegram credentials and validates explicit runtime options", () => {
+    expect(
+      loadBrowserConfig(
+        {
+          BROWSER_PROFILE_DIR: "owned",
+          BROWSER_EXECUTABLE_PATH: "browser",
+          BROWSER_HEADLESS: "true",
+        },
+        "/tmp/r6",
+      ),
+    ).toEqual({ profileDir: "/tmp/r6/owned", executablePath: "/tmp/r6/browser", headless: true });
+    expect(() => loadBrowserConfig({ BROWSER_HEADLESS: "yes" })).toThrow(ConfigError);
+    for (const settings of [
+      { BROWSER_PROFILE_DIR: "data/tmp" },
+      { BROWSER_PROFILE_DIR: "data/tmp/profile" },
+      { BROWSER_PROFILE_DIR: "data", DATABASE_PATH: "data/gateway.sqlite" },
+      { ATTACHMENT_TEMP_DIR: "data/browser-profile/files" },
+    ])
+      expect(() => loadConfig({ ...environment, ...settings }, "/tmp/r6")).toThrow(ConfigError);
+  });
   test("uses defaults and keeps deduplicated Telegram IDs as strings", () => {
     const config = loadConfig(environment, "/tmp/r0-config");
     expect(config.telegram.allowedUserIds).toEqual(["123", "456"]);

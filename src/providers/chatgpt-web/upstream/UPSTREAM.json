@@ -1,0 +1,173 @@
+{
+  "repository": "https://github.com/miuuyy/codex-chatgpt-web",
+  "revision": "fa2d2c6c24926078b46eedb2186f69f2e8d548d7",
+  "release": "v6.1.3",
+  "license": "MIT",
+  "scope": "Browser-worker import closure; gateway extension only. No upstream server/launcher is started.",
+  "sources": [
+    {
+      "path": "src/adapters/chatgpt-web/browser-worker.ts",
+      "sha": "23b00d9ce0ecd19065ba773774ecd4818115771a"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/skill-attachments.ts",
+      "sha": "3df425bd9e05ee853f81ef75093374c5bb8e0e01"
+    },
+    {
+      "path": "src/config.ts",
+      "sha": "7049b423dbf7f0d921c18636a70c20216e36068a"
+    },
+    {
+      "path": "src/lib/token-estimate.ts",
+      "sha": "b5718a4b7ad2481579080680ae7d67a9f30639e7"
+    },
+    {
+      "path": "src/types.ts",
+      "sha": "cccf7e1ccca76190d9b20d95f3e8516fe3cc14a0"
+    },
+    {
+      "path": "src/adapters/image.ts",
+      "sha": "d0aa3cd6ba96c4fd2e853aad208e1c41bb61df5b"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/markdown.ts",
+      "sha": "0043caf8e0067507b951c5c4d41c14bb95e93554"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/ui-labels.ts",
+      "sha": "8e7cd358d226fb9897c531445adf74efc139600e"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/limits.ts",
+      "sha": "bc329f5626e2c0eca92c9185cd95b2d6c8d3a4af"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/model.ts",
+      "sha": "6891f101e9bcbaffea373d4d8b9e3584867f891a"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/input-tokens.ts",
+      "sha": "3b634e3726ab5ac83a4fc4719e7078f871923eb9"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/prompt.ts",
+      "sha": "29c9848f785cb0f96dbc9b4a69949da118a6e77d"
+    },
+    {
+      "path": "src/chatgpt-session.ts",
+      "sha": "afe5d7f8dabb5780dd11a4c467bf86a351a82149"
+    },
+    {
+      "path": "src/browser-login.ts",
+      "sha": "db4ffd6d762fff88c95f38ada0a2e6a5f1de1c63"
+    },
+    {
+      "path": "src/launcher-browser-host.ts",
+      "sha": "73f7d961e72da927524c2e0d4f89a21712530abc"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/launcher-helper-client.ts",
+      "sha": "9c1ceac522d70e1c00b3ddfdde3f66bfbe37426a"
+    },
+    {
+      "path": "src/chatgpt-web-models.ts",
+      "sha": "bd0f4ebd6d5edecc8afc3ddd5c36e150dfb054e7"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/concurrency.ts",
+      "sha": "d52e99fd771d741083ae6b02dad0a8c897e7e0af"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/adapter-error.ts",
+      "sha": "798573503dc98f021e7257c3ed946ceb414e96fb"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/turn-progress.ts",
+      "sha": "72201fef83f2e7d529b183ef5095ec07f480c4d2"
+    },
+    {
+      "path": "src/responses/compaction.ts",
+      "sha": "f31cf9fe2992c92af7dc85df3cf7cd5a058abc17"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/model-selection.ts",
+      "sha": "65342cb29f2f9c82908ccf1476a6fa1a98d59680"
+    },
+    {
+      "path": "src/version.ts",
+      "sha": "0875c80fe1be32c4d406a9ceaede54f2ade72030"
+    },
+    {
+      "path": "src/process.ts",
+      "sha": "54623285cab1d00a20d3b268fc9b1be29beb4ff1"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/rolling-checkpoint.ts",
+      "sha": "017a646e65d7a9c2d08f631bd2985d518ffa6c40"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/environment.ts",
+      "sha": "bc9a9ffe690d109f0092ed4ca4b8870e50bd8426"
+    },
+    {
+      "path": "src/responses/parser.ts",
+      "sha": "ded9b12250c0e2d6934914f77963747e3ed9834c"
+    },
+    {
+      "path": "src/responses/reasoning-envelope.ts",
+      "sha": "fccf9ab7254637f110f7c685a30dfc7e61e1a661"
+    },
+    {
+      "path": "src/responses/state.ts",
+      "sha": "a889c3a8bb5d9aa7b82e582521a959f4537d8fe9"
+    },
+    {
+      "path": "src/adapters/chatgpt-web/compaction-continuation.ts",
+      "sha": "ef28cf5b1fdb4e6a8a0c5eb15ba75c52a6c18d8a"
+    },
+    {
+      "path": "src/responses/schema.ts",
+      "sha": "2286babd50108ff75954f90108894aeb82d76f26"
+    },
+    {
+      "path": "src/turndown-plugin-gfm.d.ts",
+      "sha": "9d2e998299e18983f18b86fb8874cbdd12761333"
+    },
+    {
+      "path": "launcher/electron/chatgpt-auth-session.cjs",
+      "sha": "5a9779f501c14b686f547a05e126d4d82061a2fb"
+    },
+    {
+      "path": "LICENSE",
+      "sha": "99a9feb4d2246a1fe00eb0f27394a97497af32cf"
+    }
+  ],
+  "patches": [
+    {
+      "path": "src/adapters/chatgpt-web/browser-worker.ts",
+      "sha256": "33d436bc4937dcb199554fcf17e41d4d3b405ed9de5ebeb47dc0fcc2394850d8"
+    },
+    {
+      "path": "launcher/electron/chatgpt-auth-session.cjs",
+      "sha256": "ce145c10d0e76ea65d77b980c3c4727bd57202950397a839b03c03d76afb3f23"
+    }
+  ],
+  "additions": [
+    {
+      "path": "src/adapters/chatgpt-web/gateway-session.ts",
+      "sha256": "d40b5bee742a367c26749c501006da4e71e9ff9d62b3b5f96fba3262eae10c4d"
+    },
+    {
+      "path": "launcher/electron/chatgpt-auth-session.d.cts",
+      "sha256": "34bf561409278560f454fedb1172949cb3ba44295416d610443903f9773fc31a"
+    }
+  ],
+  "dependencies": {
+    "playwright-core": "1.62.0",
+    "tiktoken": "1.0.22",
+    "turndown": "7.2.0",
+    "turndown-plugin-gfm": "1.0.2",
+    "@types/turndown": "5.0.5",
+    "zod": "4.4.3"
+  }
+}
