@@ -388,7 +388,7 @@ export async function openNormalBrowserLogin(options: {
   ], { env: process.env, stdio: "ignore" });
   await new Promise<void>((resolveExit, rejectExit) => {
     let failure: Error | undefined;
-    const abort = () => { loginBrowser.kill("SIGTERM"); };
+    const abort = () => { void stopOwnedLoginBrowser(loginBrowser).catch(rejectExit); };
     loginBrowser.once("error", error => { failure = error; });
     loginBrowser.once("close", (code, signal) => {
       options.signal?.removeEventListener("abort", abort);

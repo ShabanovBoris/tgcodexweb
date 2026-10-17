@@ -66,7 +66,8 @@ validation; shutdown joins the application service before closing the browser.
 
 Manual login reuses the pinned upstream's normal Chrome launch, extracted into an
 owned-child helper. It waits for complete browser exit before verification; cancellation
-terminates and joins only that child. The gateway never calls upstream's authentication
+reuses upstream's bounded graceful stop and forced termination for only that child,
+then joins its exit. The gateway never calls upstream's authentication
 export path. Subsequent native sessions omit Playwright's mock-keychain/basic-password
 defaults, matching upstream's login verifier and preserving the browser's native keys.
 The manual process has no automation or remote-debugging flags. This follows the

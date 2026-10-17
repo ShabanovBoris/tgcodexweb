@@ -83,3 +83,46 @@ test("aborting manual login joins the owned child; an already aborted call never
     await settled;
   }
 });
+
+test("aborting manual login force-stops an owned child that ignores SIGTERM", async () => {
+  const receipt = join(root, "pid");
+  const options = fixtureBrowser(
+    `import {writeFileSync} from "node:fs"; process.on("SIGTERM",()=>{}); writeFileSync(${JSON.stringify(receipt)},String(process.pid)); setInterval(()=>{},1000);`,
+  );
+  const controller = new AbortController();
+  let childSettled = false;
+  const settled = openNormalBrowserLogin({ ...options, signal: controller.signal })
+    .catch((error: unknown) => error)
+    .finally(() => {
+      childSettled = true;
+    });
+  let pid: number | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(receipt) && Date.now() < deadline) await Bun.sleep(10);
+    expect(existsSync(receipt)).toBe(true);
+    pid = Number(readFileSync(receipt, "utf8"));
+    controller.abort();
+    const error = await Promise.race([
+      settled,
+      new Promise((resolve) => {
+        timeout = setTimeout(() => resolve("LOGIN_ABORT_DID_NOT_SETTLE"), 7_500);
+      }),
+    ]);
+    expect(error).toBeInstanceOf(DOMException);
+    expect((error as DOMException).name).toBe("AbortError");
+    expect(() => process.kill(pid as number, 0)).toThrow();
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+    if (pid !== undefined && !childSettled) {
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // A successfully joined child no longer has a process to terminate.
+      }
+    }
+    await settled;
+  }
+}, 15_000);
