@@ -142,12 +142,12 @@ describe("local bootstrap CLI", () => {
     expect(result.stderr.toString()).not.toContain("r0-private-path");
   });
 
-  test("start reports missing real adapter and never silently substitutes fake or one-shot bootstrap", () => {
+  test("real start requires the same explicit private-chat policy before network or profile effects", () => {
     const result = run("start", fixtures);
     expect(result.exitCode).toBe(1);
     expect(JSON.parse(result.stderr.toString())).toMatchObject({
-      errorCode: "PROVIDER_UNAVAILABLE",
-      reason: "adapter_not_implemented",
+      errorCode: "CLI_ERROR",
+      reason: "explicit_private_chat_opt_in_required",
     });
     expect(readdirSync(root)).toEqual([]);
   });
@@ -166,6 +166,36 @@ describe("local bootstrap CLI", () => {
     expect(result.exitCode).toBe(1);
     expect(JSON.parse(result.stderr.toString()).errorCode).toBe("TELEGRAM_TOKEN_INVALID");
     expect(result.stderr.toString()).not.toContain(fixtures.TELEGRAM_BOT_TOKEN);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("real runtime validates the Telegram token before opening its browser profile", () => {
+    const result = run(["start", "--private"], fixtures);
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr.toString()).errorCode).toBe("TELEGRAM_TOKEN_INVALID");
+    expect(result.stderr.toString()).not.toContain(fixtures.TELEGRAM_BOT_TOKEN);
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("interactive login refuses a non-terminal before creating profile state", () => {
+    const result = run("browser:login");
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stderr.toString()).reason).toBe("interactive_login_requires_terminal");
+    expect(readdirSync(root)).toEqual([]);
+  });
+
+  test("live integration script requires opt-in before any browser or profile effect", () => {
+    const result = Bun.spawnSync(
+      [
+        process.execPath,
+        "--no-env-file",
+        join(repository, "scripts/verify-live-provider.ts"),
+        "roundtrip",
+      ],
+      { cwd: root, env: { PATH: process.env.PATH ?? "" }, stdout: "pipe", stderr: "pipe" },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr.toString()).toContain("LIVE_OPT_IN_REQUIRED");
     expect(readdirSync(root)).toEqual([]);
   });
 

@@ -1,7 +1,15 @@
 import { checkToolchain, ToolchainError } from "../../scripts/check-toolchain";
-import { ConfigError, type Environment, loadConfig, loadDatabaseConfig } from "../config/Config";
+import {
+  ConfigError,
+  type Environment,
+  loadConfig,
+  loadDatabaseConfig,
+  loadBrowserConfig,
+} from "../config/Config";
 import { createLogger } from "../logging/logger";
-import { bootstrap, startFakeGateway } from "../main";
+import { bootstrap, startFakeGateway, startGateway } from "../main";
+import { ChatGptWebProvider } from "../providers/chatgpt-web/ChatGptWebProvider";
+import { ProviderOperationError } from "../ports/ChatProvider";
 import { DatabaseError, openDatabase } from "../persistence/sqlite/Database";
 import { migrateDatabase } from "../persistence/sqlite/migrations";
 import { TelegramError } from "../transports/telegram/TelegramApi";
@@ -17,7 +25,11 @@ export async function runCli(
     checkToolchain();
     if (
       args.length !== 1 &&
-      !(args.length === 2 && args[0] === "start:fake" && args[1] === "--private")
+      !(
+        args.length === 2 &&
+        (args[0] === "start:fake" || args[0] === "start") &&
+        args[1] === "--private"
+      )
     ) {
       log("error", {
         operation: "cli.failed",
@@ -27,18 +39,12 @@ export async function runCli(
       return 1;
     }
     switch (args[0]) {
-      case "start":
-        loadConfig(env, cwd);
-        log("error", {
-          operation: "cli.failed",
-          errorCode: "PROVIDER_UNAVAILABLE",
-          reason: "adapter_not_implemented",
-        });
-        return 1;
       case "bootstrap":
         bootstrap(env, cwd);
         return 0;
+      case "start":
       case "start:fake": {
+        loadConfig(env, cwd);
         if (args[1] !== "--private") {
           log("error", {
             operation: "cli.failed",
@@ -52,12 +58,58 @@ export async function runCli(
         process.on("SIGINT", stop);
         process.on("SIGTERM", stop);
         try {
-          await startFakeGateway(env, controller.signal, cwd);
+          await (args[0] === "start" ? startGateway : startFakeGateway)(
+            env,
+            controller.signal,
+            cwd,
+          );
         } finally {
           process.off("SIGINT", stop);
           process.off("SIGTERM", stop);
         }
         return 0;
+      }
+      case "provider:health": {
+        const provider = new ChatGptWebProvider(loadBrowserConfig(env, cwd));
+        try {
+          const health = await provider.health();
+          log("info", { operation: "provider.health", providerState: health.state });
+          return health.state === "ready" ? 0 : 1;
+        } finally {
+          await provider.close();
+        }
+      }
+      case "browser:login": {
+        const config = loadBrowserConfig(env, cwd);
+        if (!process.stdin.isTTY) {
+          log("error", {
+            operation: "cli.failed",
+            errorCode: "CLI_ERROR",
+            reason: "interactive_login_requires_terminal",
+          });
+          return 1;
+        }
+        const provider = new ChatGptWebProvider({ ...config, headless: false });
+        const controller = new AbortController();
+        const stop = () => controller.abort();
+        process.on("SIGINT", stop);
+        process.on("SIGTERM", stop);
+        try {
+          process.stdout.write(
+            "Sign in to ChatGPT in the dedicated Chrome window, confirm the composer, then quit that Chrome instance completely.\n",
+          );
+          await provider.login(controller.signal);
+          const health = await provider.health();
+          log("info", { operation: "browser.login_checked", providerState: health.state });
+          return health.state === "ready" ? 0 : 1;
+        } catch (error) {
+          if (controller.signal.aborted) return 0;
+          throw error;
+        } finally {
+          process.off("SIGINT", stop);
+          process.off("SIGTERM", stop);
+          await provider.close();
+        }
       }
       case "config:check":
         loadConfig(env, cwd);
@@ -87,7 +139,7 @@ export async function runCli(
       log("error", { operation: "cli.failed", errorCode: error.code, issues: error.issues });
     } else if (error instanceof DatabaseError || error instanceof ToolchainError) {
       log("error", { operation: "cli.failed", errorCode: error.code, reason: error.reason });
-    } else if (error instanceof TelegramError) {
+    } else if (error instanceof TelegramError || error instanceof ProviderOperationError) {
       log("error", { operation: "cli.failed", errorCode: error.code });
     } else {
       log("error", { operation: "cli.failed", errorCode: "INTERNAL_ERROR" });

@@ -4,6 +4,7 @@ import { createLogger } from "./logging/logger";
 import { openDatabase } from "./persistence/sqlite/Database";
 import { migrateDatabase } from "./persistence/sqlite/migrations";
 import { FakeChatProvider } from "./providers/fake/FakeChatProvider";
+import { ChatGptWebProvider } from "./providers/chatgpt-web/ChatGptWebProvider";
 import { runGateway, type TelegramChatPolicy } from "./runtime/GatewayRuntime";
 import { HttpTelegramApi, type TelegramApi } from "./transports/telegram/TelegramApi";
 
@@ -70,4 +71,29 @@ export async function startFakeGateway(
     chatPolicy: privateChatPolicy,
     signal,
   });
+}
+
+export async function startGateway(
+  env: Environment,
+  signal: AbortSignal,
+  cwd = process.cwd(),
+  api?: TelegramApi,
+): Promise<void> {
+  const config = loadConfig(env, cwd);
+  let provider: ChatGptWebProvider | undefined;
+  try {
+    await runGateway({
+      config,
+      api: api ?? new HttpTelegramApi(config.telegram.botToken),
+      provider: (_mappings, attachmentStore) => {
+        provider = new ChatGptWebProvider({ ...config.browser, attachmentStore });
+        return provider;
+      },
+      providerLabel: "ChatGPT Web (local upstream fork)",
+      chatPolicy: privateChatPolicy,
+      signal,
+    });
+  } finally {
+    await provider?.close();
+  }
 }

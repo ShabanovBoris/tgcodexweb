@@ -72,6 +72,17 @@ export const configSchema = z.object({
       .min(1, { error: "invalid_path" })
       .default("./data/browser-profile"),
   ),
+  BROWSER_EXECUTABLE_PATH: z.preprocess(
+    blankAsMissing,
+    z.string().trim().min(1, { error: "invalid_path" }).optional(),
+  ),
+  BROWSER_HEADLESS: z.preprocess(
+    blankAsMissing,
+    z
+      .enum(["true", "false"], { error: "invalid_boolean" })
+      .default("false")
+      .transform((value) => value === "true"),
+  ),
   // Bun timers above the signed 32-bit limit become 1ms instead of the requested duration.
   GENERATION_TIMEOUT_MS: positiveInteger(600000).refine((value) => value <= 2_147_483_647, {
     error: "invalid_generation_timeout",
@@ -107,3 +118,8 @@ export const configSchema = z.object({
 });
 
 export const databaseSchema = configSchema.pick({ DATABASE_PATH: true });
+export const browserSchema = configSchema.pick({
+  BROWSER_PROFILE_DIR: true,
+  BROWSER_EXECUTABLE_PATH: true,
+  BROWSER_HEADLESS: true,
+});
