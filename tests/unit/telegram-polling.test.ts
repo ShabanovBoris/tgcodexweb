@@ -158,7 +158,7 @@ test("R7 reconnect keeps the handled offset, restores readiness and initializes 
   ]);
   await f.runner.run(f.controller.signal);
   expect(f.observed.offsets).toEqual([undefined, 8, 8, 9]);
-  expect(f.observed.readyAtPoll).toEqual([true, true, false, true]);
+  expect(f.observed.readyAtPoll).toEqual([false, true, false, true]);
   expect(f.observed.handled).toEqual([7, 8]);
   expect(f.observed.delays).toEqual([1000]);
   expect(f.observed.initializations).toBe(1);
@@ -171,6 +171,55 @@ test("R7 reconnect keeps the handled offset, restores readiness and initializes 
   expect(f.runner.ready()).toBe(false);
   await expect(f.runner.run(f.controller.signal)).rejects.toThrow("TELEGRAM_ALREADY_STARTED");
 });
+
+test.each([true, false])(
+  "R7 startup stays non-ready until the first poll succeeds (empty=%s)",
+  async (empty) => {
+    const api = new FakeTelegramApi();
+    const controller = new AbortController();
+    const firstEntered = new FakeBarrier(),
+      firstResponse = new FakeBarrier(),
+      secondEntered = new FakeBarrier();
+    const handled: number[] = [];
+    let polls = 0,
+      shutdowns = 0;
+    api.getUpdates = async (_offset, signal) => {
+      if (++polls === 1) {
+        firstEntered.release();
+        await firstResponse.promise;
+        return empty ? [] : [update(7, "synthetic")];
+      }
+      secondEntered.release();
+      return new Promise((_, reject) =>
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+      );
+    };
+    const runner = new TelegramPolling({
+      api,
+      initialize: async () => {},
+      handle: async (input) => {
+        expect(runner.ready()).toBe(true);
+        handled.push(input.update_id);
+      },
+      shutdown: async () => {
+        shutdowns++;
+      },
+    });
+    const running = runner.run(controller.signal);
+    await firstEntered.promise;
+    const readyBeforeResponse = runner.ready();
+    firstResponse.release();
+    await secondEntered.promise;
+    const readyAfterResponse = runner.ready();
+    controller.abort();
+    await running;
+    expect(readyBeforeResponse).toBe(false);
+    expect(readyAfterResponse).toBe(true);
+    expect(runner.ready()).toBe(false);
+    expect(handled).toEqual(empty ? [] : [7]);
+    expect({ polls, shutdowns }).toEqual({ polls: 2, shutdowns: 1 });
+  },
+);
 
 test("R7 five retries are bounded and the sixth consecutive failure shuts down once", async () => {
   const error = new TelegramError("TELEGRAM_UNAVAILABLE", 0);

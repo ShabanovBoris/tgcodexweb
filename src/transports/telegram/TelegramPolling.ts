@@ -84,7 +84,6 @@ export class TelegramPolling {
     if (signal.aborted) return;
     await this.dependencies.initialize(identity);
     if (signal.aborted) return;
-    this.phase = "running";
     let offset: number | undefined;
     let retries = 0;
     while (!signal.aborted) {

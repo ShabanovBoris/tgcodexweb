@@ -204,9 +204,8 @@ export class HttpTelegramApi implements TelegramApi {
       const serverFailure = response.status >= 500 && response.status <= 599;
       const parsed = envelope.safeParse(
         await response.json().catch((error: unknown) => {
-          // Proxies may return HTML for a 5xx. A malformed successful payload stays fatal.
-          if (method === "getUpdates" && serverFailure && error instanceof SyntaxError)
-            return undefined;
+          // A known 5xx stays transient even when its body cannot be read or decoded.
+          if (method === "getUpdates" && serverFailure) return undefined;
           // An unreadable 429 cannot authorize a retry before an unknown retry_after.
           if (method === "getUpdates" && !response.ok && !serverFailure)
             throw new TelegramError(failureCode);

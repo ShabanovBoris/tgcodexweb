@@ -650,9 +650,10 @@ a safe retry-delay hint only for allowlisted network errors, its own read timeou
 failures and explicit 429 responses with valid integer `retry_after` seconds. The poller
 waits at least that long, with a 60-second per-wait limit; a larger requirement is fatal
 without truncation or an early retry. Token errors, poller/webhook conflicts, malformed
-success payloads, unknown failures and exhausted retries remain fatal. Reconnection is
-non-ready and retains one poller, the handled offset, the database and the running provider;
-it does not reinitialize the application. `getMe`, update handlers, delivery, provider
+success payloads, unknown failures and exhausted retries remain fatal. Startup and
+reconnection are non-ready until a successful poll. Reconnection retains one poller,
+the handled offset, the database and the running provider; it does not reinitialize the
+application. `getMe`, update handlers, delivery, provider
 mutations and UNKNOWN requests gain no replay path. Webhooks are never deleted.
 Signal shutdown aborts polling/backoff, stops admission and joins active request effects
 before database closure. This slice is not full R7 operational recovery; see

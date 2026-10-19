@@ -256,6 +256,52 @@ test("R7 HTTP 5xx polls can recover even with an HTML body; malformed success an
   }
 });
 
+test("R7 known 5xx remains retryable when reading its body rejects without a network code", async () => {
+  for (const status of [500, 503, 599]) {
+    for (const raw of [
+      new TypeError(`private body stream https://api.telegram.org/bot${token}/getUpdates`),
+      new Error("private unreadable body"),
+    ]) {
+      let calls = 0;
+      const api = new HttpTelegramApi(token, async () => {
+        calls++;
+        const response = new Response("", { status });
+        response.json = async () => {
+          throw raw;
+        };
+        return response;
+      });
+      const error = await api
+        .getUpdates(7, new AbortController().signal)
+        .catch((error: unknown) => error);
+      expect(error).toMatchObject({ code: "TELEGRAM_UNAVAILABLE", pollingRetryAfterMs: 0 });
+      expect(calls).toBe(1);
+      expect(String(error)).not.toContain(token);
+      expect(String(error)).not.toContain("private");
+      expect(error).not.toHaveProperty("cause");
+      const delivery = await api
+        .sendMessage({ chatId: "123", text: "synthetic" })
+        .catch((error: unknown) => error);
+      expect(delivery).toMatchObject({ code: "TELEGRAM_DELIVERY_FAILED" });
+      expect((delivery as TelegramError).pollingRetryAfterMs).toBeUndefined();
+    }
+  }
+});
+
+test("R7 caller abort while reading a 503 body still propagates the exact reason", async () => {
+  const controller = new AbortController();
+  const reason = new Error("fixture body abort");
+  const api = new HttpTelegramApi(token, async () => {
+    const response = new Response("", { status: 503 });
+    response.json = async () => {
+      controller.abort(reason);
+      throw new TypeError("private interrupted body");
+    };
+    return response;
+  });
+  await expect(api.getUpdates(7, controller.signal)).rejects.toBe(reason);
+});
+
 test("R7 429 requires explicit, safe integer retry_after seconds; no hint is guessed", async () => {
   for (const retryAfter of [0, 1, 60, 61, -1, 0.5, "2", null, undefined, Number.MAX_SAFE_INTEGER]) {
     const { api } = mockApi([
