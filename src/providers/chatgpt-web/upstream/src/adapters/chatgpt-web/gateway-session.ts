@@ -90,6 +90,18 @@ export function gatewayDelay(milliseconds: number, signal?: AbortSignal): Promis
   });
 }
 
+function newUserIdentities(
+  state: ChatGptSubmissionDomState,
+  baseline: ChatGptSubmissionBaseline,
+): string[] {
+  // A grouped turn keeps the user's stable key even without a caption bubble or mounted body.
+  return state.turnIdentities.filter(
+    (identity) =>
+      !baseline.initialTurnIdentities.includes(identity) &&
+      (identity.startsWith("group:user:") || state.userIdentities.includes(identity)),
+  );
+}
+
 export class GatewayBrowserSession {
   private context?: BrowserContext;
   private opening?: Promise<BrowserContext>;
@@ -278,9 +290,7 @@ export class GatewayBrowserSession {
       const deadline = Date.now() + 20_000;
       while (Date.now() < deadline) {
         const state = await this.primitives.state(page, baseline);
-        const users = state.userIdentities.filter(
-          (id) => !baseline.initialTurnIdentities.includes(id),
-        );
+        const users = newUserIdentities(state, baseline);
         if (users.length > 1) return { state: "unknown" };
         const remoteId = gatewayConversationId(page.url());
         const turnId = users[0];
@@ -324,9 +334,7 @@ export class GatewayBrowserSession {
       if (!page || !baseline || gatewayConversationId(page.url()) !== operation.remoteId)
         return { state: "unknown" };
       const state = await this.primitives.state(page, baseline);
-      const newUsers = state.userIdentities.filter(
-        (value) => !baseline.initialTurnIdentities.includes(value),
-      );
+      const newUsers = newUserIdentities(state, baseline);
       if (newUsers.some((value) => value !== operation.turnId)) return { state: "unknown" };
       const responses = state.responseIdentities.filter(
         (value) => !baseline.initialTurnIdentities.includes(value),
