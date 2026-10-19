@@ -8,7 +8,7 @@ import { startFakeGateway } from "../../src/main";
 import { openDatabase } from "../../src/persistence/sqlite/Database";
 import { SqliteConversationRepository } from "../../src/persistence/sqlite/SqliteConversationRepository";
 import { SqliteRequestRepository } from "../../src/persistence/sqlite/SqliteRequestRepository";
-import { FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
+import { FakeBarrier, FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
 import { runGateway, type TelegramChatPolicy } from "../../src/runtime/GatewayRuntime";
 import { TelegramError } from "../../src/transports/telegram/TelegramApi";
 import { QueueFixture } from "../fixtures/queue";
@@ -109,6 +109,133 @@ test("composition runs a Telegram round trip, closes gracefully, and persists ma
   expect(logs.join("")).not.toContain("synthetic prompt");
   expect(logs.join("")).not.toContain("R4_SYNTHETIC_TOKEN");
 });
+
+test.each(["completed", "unknown", "delivery_failed"] as const)(
+  "R7 reconnect/redelivery preserves one durable request and provider prompt: %s",
+  async (outcome) => {
+    const api = new FakeTelegramApi();
+    const provider = new FakeChatProvider();
+    const controller = new AbortController();
+    const entered = new FakeBarrier(),
+      delivered = new FakeBarrier();
+    const logs: string[] = [];
+    const offsets: (number | undefined)[] = [];
+    let factories = 0,
+      identities = 0,
+      deliveries = 0,
+      activePolls = 0,
+      maximumPolls = 0;
+    let requestId = "";
+    const send = provider.send.bind(provider),
+      completion = provider.awaitCompletion.bind(provider);
+    provider.send = async (input) => {
+      requestId = input.clientRequestId;
+      provider.plan(requestId, { kind: outcome === "unknown" ? "ambiguous_submit" : "slow" });
+      return send(input);
+    };
+    provider.awaitCompletion = async (input) => {
+      entered.release();
+      return completion(input);
+    };
+    api.getMe = async () => {
+      identities++;
+      return { id: 777, username: "r4_bot" };
+    };
+    api.sendFailure = (message) => {
+      if (message.parseMode) {
+        deliveries++;
+        if (outcome === "unknown") entered.release();
+        delivered.release();
+        if (outcome === "delivery_failed") return new TelegramError("TELEGRAM_DELIVERY_FAILED");
+      }
+      return undefined;
+    };
+    api.getUpdates = async (offset, signal) => {
+      offsets.push(offset);
+      maximumPolls = Math.max(maximumPolls, ++activePolls);
+      try {
+        if (offsets.length === 1)
+          return [update(1, "/add coding remote"), update(2, "R7 private prompt")];
+        if (offsets.length === 2) {
+          await entered.promise;
+          const failure = new TelegramError("TELEGRAM_UNAVAILABLE", 0);
+          failure.message =
+            "private network details https://api.telegram.org/bot123:R7_SYNTHETIC/getUpdates";
+          throw failure;
+        }
+        if (offsets.length === 3) {
+          const database = openDatabase(config().database.path);
+          try {
+            expect(new SqliteRequestRepository(database).findByUpdate("2")?.state).toBe(
+              outcome === "unknown" ? "unknown" : "running",
+            );
+          } finally {
+            database.close(true);
+          }
+          expect(factories).toBe(1);
+          expect(provider.sendCalls).toHaveLength(1);
+          return [update(2, "R7 private prompt")];
+        }
+        if (outcome !== "unknown") provider.complete(requestId, "R7 synthetic answer");
+        await delivered.promise;
+        controller.abort();
+        throw signal.reason;
+      } finally {
+        activePolls--;
+      }
+    };
+    await runGateway({
+      config: config(),
+      api,
+      provider: () => {
+        factories++;
+        return provider;
+      },
+      providerLabel: "Fake",
+      chatPolicy: privatePolicy,
+      signal: controller.signal,
+      log: createLogger({ sink: (line) => logs.push(line) }),
+    });
+    expect(offsets).toEqual([undefined, 3, 3, 3]);
+    expect({ factories, identities, maximumPolls, deliveries }).toEqual({
+      factories: 1,
+      identities: 1,
+      maximumPolls: 1,
+      deliveries: 1,
+    });
+    expect(provider.sendCalls).toHaveLength(1);
+    expect(provider.submissions).toHaveLength(1);
+    expect(provider.inspections).toEqual([]);
+    const database = openDatabase(config().database.path);
+    try {
+      expect(database.query("SELECT state FROM requests").all()).toEqual([
+        { state: outcome === "unknown" ? "unknown" : "completed" },
+      ]);
+      expect(
+        database
+          .query("SELECT request_id FROM processed_updates WHERE telegram_update_id = '2'")
+          .get(),
+      ).toEqual({ request_id: requestId });
+      expect(database.query("SELECT * FROM request_inputs").all()).toEqual([]);
+    } finally {
+      database.close(true);
+    }
+    expect(logs.some((line) => JSON.parse(line).operation === "telegram.poll_recovered")).toBe(
+      true,
+    );
+    expect(logs.some((line) => JSON.parse(line).operation === "telegram.delivery_failed")).toBe(
+      outcome === "delivery_failed",
+    );
+    for (const privateValue of [
+      "R7 private prompt",
+      "R7 synthetic answer",
+      "R7_SYNTHETIC",
+      "api.telegram.org",
+      "private network details",
+    ])
+      expect(logs.join("")).not.toContain(privateValue);
+  },
+);
 
 test("R5 runtime passes actual files to the fake adapter and joins cleanup before closing SQLite", async () => {
   const api = new FakeTelegramApi();

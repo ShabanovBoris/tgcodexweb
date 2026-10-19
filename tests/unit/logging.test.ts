@@ -109,4 +109,23 @@ describe("redaction and ordinary logs", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0].split("\n")).toHaveLength(2);
   });
+
+  test("R7 retry diagnostics allow numeric timing without raw exceptions or token URLs", () => {
+    const lines: string[] = [];
+    const log = createLogger({ sink: (line) => lines.push(line) });
+    log("warn", {
+      operation: "telegram.poll_retry",
+      errorCode: "TELEGRAM_UNAVAILABLE",
+      retryAttempt: 2,
+      retryDelayMs: 2000,
+      ...{
+        url: "https://api.telegram.org/bot123:R7_SYNTHETIC/getUpdates",
+        error: new Error("private network details"),
+      },
+    });
+    expect(JSON.parse(lines[0])).toMatchObject({ retryAttempt: 2, retryDelayMs: 2000 });
+    expect(lines[0]).not.toContain("api.telegram.org");
+    expect(lines[0]).not.toContain("R7_SYNTHETIC");
+    expect(lines[0]).not.toContain("private network details");
+  });
 });

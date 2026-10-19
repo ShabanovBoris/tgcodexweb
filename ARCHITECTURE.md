@@ -643,10 +643,21 @@ and on recovered request execution. Revoked queued work fails before provider su
 revoked interrupted work remains blocked without inspection or replay.
 
 Token validation precedes database/provider startup. Polling offset advances only after
-handled ingress; loss of offset does not lose durable deduplication. API/poll failures
-terminate the runtime without automatic retries or webhook deletion. Signal shutdown
-stops polling/admission and joins active request effects before database closure. This is
-the minimum lifecycle needed for a running R4 transport, not full R7 operational recovery.
+handled ingress; loss of offset does not lose durable deduplication. The first R7 slice
+retries only `getUpdates`, with five consecutive retries after 1/2/4/8/16 seconds. A
+successful poll, including an empty result, resets the budget. The HTTP adapter supplies
+a safe retry-delay hint only for allowlisted network errors, its own read timeout, 5xx
+failures and explicit 429 responses with valid integer `retry_after` seconds. The poller
+waits at least that long, with a 60-second per-wait limit; a larger requirement is fatal
+without truncation or an early retry. Token errors, poller/webhook conflicts, malformed
+success payloads, unknown failures and exhausted retries remain fatal. Startup and
+reconnection are non-ready until a successful poll. Reconnection retains one poller,
+the handled offset, the database and the running provider; it does not reinitialize the
+application. `getMe`, update handlers, delivery, provider
+mutations and UNKNOWN requests gain no replay path. Webhooks are never deleted.
+Signal shutdown aborts polling/backoff, stops admission and joins active request effects
+before database closure. This slice is not full R7 operational recovery; see
+[verification](docs/verification/R7.md).
 
 Fake mode uses a separate database with a `fake-` basename prefix and a clearly labelled
 status. It does not use the real database/profile or represent real remote history.

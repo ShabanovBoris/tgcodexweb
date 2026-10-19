@@ -45,9 +45,12 @@ export class TelegramError extends Error {
   constructor(
     readonly code:
       | "TELEGRAM_TOKEN_INVALID"
+      | "TELEGRAM_CONFLICT"
       | "TELEGRAM_UNAVAILABLE"
       | "TELEGRAM_PARSE_ERROR"
       | "TELEGRAM_DELIVERY_FAILED",
+    // Only getUpdates may supply this hint. It never authorizes replay of a handled update.
+    readonly pollingRetryAfterMs?: number,
   ) {
     super(code);
     this.name = "TelegramError";
@@ -59,7 +62,24 @@ const envelope = z.object({
   result: z.unknown().optional(),
   error_code: integer.optional(),
   description: z.string().optional(),
+  parameters: z.unknown().optional(),
 });
+
+const floodControl = z.object({
+  retry_after: integer.nonnegative().max(Math.floor(Number.MAX_SAFE_INTEGER / 1000)),
+});
+const transientNetworkCodes = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ENETUNREACH",
+  "EHOSTUNREACH",
+  "EPIPE",
+  "ConnectionClosed",
+  "ConnectionRefused",
+]);
 
 export class HttpTelegramApi implements TelegramApi {
   constructor(
@@ -167,6 +187,8 @@ export class HttpTelegramApi implements TelegramApi {
     signal?.throwIfAborted();
     const deadline = AbortSignal.timeout(method === "getUpdates" ? 35000 : 15000);
     const requestSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    const failureCode =
+      method === "sendMessage" ? "TELEGRAM_DELIVERY_FAILED" : "TELEGRAM_UNAVAILABLE";
     try {
       const response = await this.fetcher(`https://api.telegram.org/bot${this.token}/${method}`, {
         method: "POST",
@@ -175,15 +197,51 @@ export class HttpTelegramApi implements TelegramApi {
         redirect: "error",
         signal: requestSignal,
       });
-      const parsed = envelope.safeParse(await response.json());
+      if (method === "getUpdates") {
+        if (response.status === 401) throw new TelegramError("TELEGRAM_TOKEN_INVALID");
+        if (response.status === 409) throw new TelegramError("TELEGRAM_CONFLICT");
+      }
+      const serverFailure = response.status >= 500 && response.status <= 599;
+      const parsed = envelope.safeParse(
+        await response.json().catch((error: unknown) => {
+          // A known 5xx stays transient even when its body cannot be read or decoded.
+          if (method === "getUpdates" && serverFailure) return undefined;
+          // An unreadable 429 cannot authorize a retry before an unknown retry_after.
+          if (method === "getUpdates" && !response.ok && !serverFailure)
+            throw new TelegramError(failureCode);
+          throw error;
+        }),
+      );
       if (!parsed.success)
         throw new TelegramError(
-          method === "sendMessage" ? "TELEGRAM_DELIVERY_FAILED" : "TELEGRAM_UNAVAILABLE",
+          failureCode,
+          method === "getUpdates" && serverFailure ? 0 : undefined,
         );
       const data = parsed.data;
       if (!data.ok || !response.ok) {
-        if (data.error_code === 401 || (method === "getMe" && data.error_code === 404))
+        if (
+          response.status === 401 ||
+          data.error_code === 401 ||
+          (method === "getMe" && data.error_code === 404)
+        )
           throw new TelegramError("TELEGRAM_TOKEN_INVALID");
+        if (method === "getUpdates") {
+          if (response.status === 409 || data.error_code === 409)
+            throw new TelegramError("TELEGRAM_CONFLICT");
+          if (!data.ok && response.status === 429 && data.error_code === 429) {
+            const parameters = floodControl.safeParse(data.parameters);
+            throw new TelegramError(
+              failureCode,
+              parameters.success ? parameters.data.retry_after * 1000 : undefined,
+            );
+          }
+          if (
+            !data.ok &&
+            serverFailure &&
+            (data.error_code === undefined || (data.error_code >= 500 && data.error_code <= 599))
+          )
+            throw new TelegramError(failureCode, 0);
+        }
         // Only an explicit parser rejection proves that a rich message was not sent.
         if (
           method === "sendMessage" &&
@@ -193,18 +251,20 @@ export class HttpTelegramApi implements TelegramApi {
           /^Bad Request: can't parse entities(?::|$)/i.test(data.description ?? "")
         )
           throw new TelegramError("TELEGRAM_PARSE_ERROR");
-        throw new TelegramError(
-          method === "sendMessage" ? "TELEGRAM_DELIVERY_FAILED" : "TELEGRAM_UNAVAILABLE",
-        );
+        throw new TelegramError(failureCode);
       }
       return data.result;
     } catch (error) {
       if (signal?.aborted) throw signal.reason;
       if (error instanceof TelegramError) throw error;
       // Fetch errors can include the token-bearing URL; neither cause nor description escapes this adapter.
-      throw new TelegramError(
-        method === "sendMessage" ? "TELEGRAM_DELIVERY_FAILED" : "TELEGRAM_UNAVAILABLE",
-      );
+      const transient =
+        deadline.aborted ||
+        (error instanceof Error &&
+          "code" in error &&
+          typeof error.code === "string" &&
+          transientNetworkCodes.has(error.code));
+      throw new TelegramError(failureCode, method === "getUpdates" && transient ? 0 : undefined);
     }
   }
 }
