@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { HttpTelegramApi, TelegramError } from "../../src/transports/telegram/TelegramApi";
 
 const token = "123456789:R4_SYNTHETIC_TOKEN";
@@ -161,4 +161,163 @@ test("caller cancellation is propagated without normalizing it as a transport fa
     throw new Error("raw");
   });
   await expect(api.getUpdates(undefined, controller.signal)).rejects.toBe(reason);
+});
+
+test("R7 only known poll network failures carry a safe retry hint; unknown/TLS errors stay fatal", async () => {
+  for (const code of [
+    "ECONNRESET",
+    "ECONNREFUSED",
+    "ETIMEDOUT",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "ConnectionClosed",
+    "ConnectionRefused",
+    "CERT_HAS_EXPIRED",
+    undefined,
+  ]) {
+    const raw = Object.assign(new TypeError(`https://api.telegram.org/bot${token}/getUpdates`), {
+      code,
+    });
+    let calls = 0;
+    const api = new HttpTelegramApi(token, async () => {
+      calls++;
+      throw raw;
+    });
+    const error = await api
+      .getUpdates(7, new AbortController().signal)
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(TelegramError);
+    expect((error as TelegramError).pollingRetryAfterMs).toBe(
+      code && code !== "CERT_HAS_EXPIRED" ? 0 : undefined,
+    );
+    expect(String(error)).not.toContain(token);
+    expect(error).not.toHaveProperty("cause");
+    expect(calls).toBe(1);
+    const delivery = await api
+      .sendMessage({ chatId: "123", text: "synthetic" })
+      .catch((error: unknown) => error);
+    expect((delivery as TelegramError).pollingRetryAfterMs).toBeUndefined();
+    const startup = await api.getMe().catch((error: unknown) => error);
+    expect((startup as TelegramError).pollingRetryAfterMs).toBeUndefined();
+  }
+});
+
+test("R7 poll deadline is retryable, caller abort takes priority over the deadline", async () => {
+  const timeout = spyOn(AbortSignal, "timeout").mockImplementation(() =>
+    AbortSignal.abort(new DOMException("fixture timeout", "TimeoutError")),
+  );
+  try {
+    const controller = new AbortController();
+    const api = new HttpTelegramApi(token, async (_url, input) => {
+      throw input.signal?.reason;
+    });
+    await expect(api.getUpdates(7, controller.signal)).rejects.toMatchObject({
+      code: "TELEGRAM_UNAVAILABLE",
+      pollingRetryAfterMs: 0,
+    });
+    controller.abort(new Error("caller stopped"));
+    await expect(api.getUpdates(7, controller.signal)).rejects.toBe(controller.signal.reason);
+  } finally {
+    timeout.mockRestore();
+  }
+});
+
+test("R7 HTTP 5xx polls can recover even with an HTML body; malformed success and conflicts cannot", async () => {
+  for (const status of [500, 502, 503, 504, 599]) {
+    for (const body of [
+      "<html>upstream unavailable</html>",
+      JSON.stringify({ ok: false, error_code: status, description: token }),
+    ]) {
+      const api = new HttpTelegramApi(token, async () => new Response(body, { status }));
+      await expect(api.getUpdates(7, new AbortController().signal)).rejects.toMatchObject({
+        code: "TELEGRAM_UNAVAILABLE",
+        pollingRetryAfterMs: 0,
+      });
+    }
+  }
+  for (const [status, body, code] of [
+    [200, { ok: true, result: [{ update_id: "bad" }] }, "TELEGRAM_UNAVAILABLE"],
+    [200, { invalid: true }, "TELEGRAM_UNAVAILABLE"],
+    [500, { ok: true, result: [] }, "TELEGRAM_UNAVAILABLE"],
+    [500, { ok: false, error_code: 401 }, "TELEGRAM_TOKEN_INVALID"],
+    [401, { ok: false, error_code: 401 }, "TELEGRAM_TOKEN_INVALID"],
+    [403, { ok: false, error_code: 403 }, "TELEGRAM_UNAVAILABLE"],
+    [409, { ok: false, error_code: 409, description: token }, "TELEGRAM_CONFLICT"],
+    [500, { ok: false, error_code: 409 }, "TELEGRAM_CONFLICT"],
+    [200, { ok: false, error_code: 418 }, "TELEGRAM_UNAVAILABLE"],
+  ] as const) {
+    const { api } = mockApi([{ status, body }]);
+    const error = await api
+      .getUpdates(7, new AbortController().signal)
+      .catch((error: unknown) => error);
+    expect(error).toMatchObject({ code });
+    expect((error as TelegramError).pollingRetryAfterMs).toBeUndefined();
+    expect(String(error)).not.toContain(token);
+  }
+});
+
+test("R7 429 requires explicit, safe integer retry_after seconds; no hint is guessed", async () => {
+  for (const retryAfter of [0, 1, 60, 61, -1, 0.5, "2", null, undefined, Number.MAX_SAFE_INTEGER]) {
+    const { api } = mockApi([
+      {
+        status: 429,
+        body: { ok: false, error_code: 429, parameters: { retry_after: retryAfter } },
+      },
+    ]);
+    const error = await api
+      .getUpdates(7, new AbortController().signal)
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(TelegramError);
+    expect((error as TelegramError).pollingRetryAfterMs).toBe(
+      typeof retryAfter === "number" &&
+        retryAfter >= 0 &&
+        retryAfter <= 61 &&
+        Number.isInteger(retryAfter)
+        ? retryAfter * 1000
+        : undefined,
+    );
+  }
+  for (const [status, ok, errorCode] of [
+    [200, false, 429],
+    [429, true, 429],
+    [429, false, 400],
+  ] as const) {
+    const { api } = mockApi([
+      { status, body: { ok, error_code: errorCode, parameters: { retry_after: 1 } } },
+    ]);
+    const error = await api
+      .getUpdates(7, new AbortController().signal)
+      .catch((error: unknown) => error);
+    expect((error as TelegramError).pollingRetryAfterMs).toBeUndefined();
+  }
+});
+
+test("R7 a broken 4xx body cannot bypass fatal status or guess a flood-control delay", async () => {
+  for (const status of [401, 403, 409, 429]) {
+    for (const raw of [
+      new SyntaxError("private malformed body"),
+      Object.assign(new TypeError("private broken body"), { code: "ECONNRESET" }),
+    ]) {
+      const api = new HttpTelegramApi(token, async () => {
+        const response = new Response("", { status });
+        response.json = async () => {
+          throw raw;
+        };
+        return response;
+      });
+      const error = await api
+        .getUpdates(7, new AbortController().signal)
+        .catch((error: unknown) => error);
+      expect(error).toMatchObject({
+        code:
+          status === 401
+            ? "TELEGRAM_TOKEN_INVALID"
+            : status === 409
+              ? "TELEGRAM_CONFLICT"
+              : "TELEGRAM_UNAVAILABLE",
+      });
+      expect((error as TelegramError).pollingRetryAfterMs).toBeUndefined();
+      expect(String(error)).not.toContain("private");
+    }
+  }
 });

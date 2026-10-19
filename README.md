@@ -188,7 +188,14 @@ real ChatGPT access/authentication. `/add sample remote` attaches a predefined s
 conversation. `/new coding` creates another synthetic conversation.
 
 SIGINT/SIGTERM stop polling/admission and join active request effects before closing
-SQLite. Poll/API failures stop the runtime; automatic reconnect/retry is deferred to R7.
+SQLite. Known transient `getUpdates` failures reconnect in the same runtime: up to five
+retries after 1/2/4/8/16 seconds, with the budget reset by a successful poll (including an
+empty result). An explicit 429 `retry_after` is a minimum wait, up to 60 seconds; a longer
+or invalid delay stops the runtime without an early retry. Reconnection preserves the
+handled offset and reports transport non-ready until a poll succeeds. Token errors,
+poller/webhook conflicts, malformed successful responses, unclassified failures and
+exhausted retries remain fatal. Initial `getMe`, update handlers and reply delivery do
+not gain automatic retries. See [R7 polling evidence](docs/verification/R7.md).
 Polling acknowledges an update after handling it. Durable markers suppress redelivery
 after a lost polling offset. Commands are marked before effects, so interrupted commands
 are not automatically replayed; command crash reconciliation is not implemented.

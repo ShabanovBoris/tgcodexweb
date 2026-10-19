@@ -56,6 +56,7 @@ export async function runGateway(
   const now = () => new Date().toISOString();
   const runner = new TelegramPolling({
     api: input.api,
+    log,
     initialize: async (identity) => {
       database = openDatabase(input.config.database.path);
       migrateDatabase(database);
