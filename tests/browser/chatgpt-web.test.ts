@@ -127,6 +127,81 @@ describe.skipIf(process.env.TGWEBGPT_BROWSER_TEST !== "1")(
       file.release();
     }, 30_000);
 
+    test.each([
+      ["PDF", "application/pdf", "input.pdf", Buffer.from("%PDF-1.4\nsynthetic\n%%EOF")],
+      ["JPEG", "image/jpeg", "input.jpg", Buffer.from([0xff, 0xd8, 0xff, 0xd9])],
+    ] as const)(
+      "captionless %s binds the logical group and completes exactly once",
+      async (_, mimeType, filename, bytes) => {
+        const store = new LocalAttachmentStore(join(root, "files"));
+        await store.initialize();
+        await provider.close();
+        fixture.groupedTurns = true;
+        provider = fixture.provider(store);
+        const stored = await store.put(
+          (async function* () {
+            yield bytes;
+          })(),
+          100,
+        );
+        try {
+          const existing = await provider.inspectConversation(fixtureRemote);
+          const submission = (await provider.send({
+            conversationId: existing.id,
+            clientRequestId: "captionless-file",
+            attachments: [{ storageKey: stored.key, filename, mimeType, sizeBytes: bytes.length }],
+          })) as ProviderSubmission;
+          expect(submission.state).toBe("submitted");
+          expect(submission.providerRequestId).toBe("group:user:new-user");
+          expect(
+            await fixture.mutationPage
+              ?.locator('[data-turn-key="new-user"] [data-user-message-bubble]')
+              .count(),
+          ).toBe(0);
+          expect(fixture.submissions).toEqual([
+            {
+              text: "",
+              path: `/c/${fixtureRemote}`,
+              files: [{ name: filename, mimeType, base64: bytes.toString("base64") }],
+            },
+          ]);
+          expect((await provider.inspectRequest(submission)).state).toBe("running");
+          await fixture.finish();
+          const outcome = await provider.awaitCompletion({
+            submission,
+            signal: AbortSignal.timeout(10_000),
+          });
+          expect(outcome.state).toBe("completed");
+          if (outcome.state === "completed") {
+            expect(outcome.message.id).toBe("group:assistant:new-user");
+            expect(outcome.message.text).toContain("final answer");
+            expect(outcome.message.text).not.toContain("old answer");
+          }
+          expect(fixture.uploads).toBe(1);
+          expect(fixture.submissions).toHaveLength(1);
+        } finally {
+          stored.release();
+        }
+      },
+      40_000,
+    );
+
+    test("a foreign captionless group cannot complete the bound request", async () => {
+      fixture.groupedTurns = true;
+      const existing = await provider.inspectConversation(fixtureRemote);
+      const submission = (await provider.send({
+        conversationId: existing.id,
+        clientRequestId: "grouped-foreign",
+        text: "only mine",
+        attachments: [],
+      })) as ProviderSubmission;
+      expect(submission.state).toBe("submitted");
+      await fixture.foreignTurn();
+      await fixture.finish();
+      expect((await provider.inspectRequest(submission)).state).toBe("unknown");
+      expect(fixture.submissions).toHaveLength(1);
+    }, 30_000);
+
     test("duplicate filenames preserve both file payloads and produce one completed Send", async () => {
       const store = new LocalAttachmentStore(join(root, "files"));
       await store.initialize();
