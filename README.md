@@ -149,6 +149,24 @@ exact existing chat. Registering a newly created chat again converges on the sam
 This fork advertises one active conversation and no confirmed cancellation capability;
 `/stop` reports unsupported. UNKNOWN blocks dispatch and is never automatically replayed.
 
+If UNKNOWN blocks the queue, stop the bot and inspect the exact request in ChatGPT.
+After verifying that its response has finished, record that explicit operator confirmation:
+
+```sh
+bun --env-file=.env run recover:unknown <request-id> --confirm-completed
+bun --env-file=.env run start --private
+```
+
+The recovery command is offline and needs only `DATABASE_PATH`, without Telegram or browser
+credentials. It releases that block while retaining UNKNOWN, deduplication and every queued
+input. It neither resends the original request nor delivers its old answer. The next normal
+start executes queued requests in their original order. A second confirmation is idempotent.
+`DATABASE_ERROR` with reason `gateway_busy` means the running bot must stop first; this
+version uses an exclusive SQLite lease through provider cleanup. Stop older bot versions
+completely before recovery. Never delete or replace the `*-gateway-lock` file to unlock
+the service: process death releases the lock automatically. The original submission
+acknowledgement failure still requires separate diagnosis.
+
 All standard verification is offline. To run the separate real-Chromium/synthetic-site
 profile, set `TGWEBGPT_TEST_BROWSER` to an installed Chromium executable and run
 `bun run test:browser`. Every URL is intercepted; no live ChatGPT account is used.

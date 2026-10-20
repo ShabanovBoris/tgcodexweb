@@ -103,6 +103,7 @@ describe("local bootstrap CLI", () => {
         { name: "processed_updates" },
         { name: "request_acceptances" },
         { name: "request_inputs" },
+        { name: "request_unknown_resolutions" },
         { name: "requests" },
         { name: "schema_migrations" },
         { name: "sqlite_sequence" },
@@ -114,6 +115,7 @@ describe("local bootstrap CLI", () => {
         { version: 3, name: "0003_request_inputs.sql" },
         { version: 4, name: "0004_request_acceptances.sql" },
         { version: 5, name: "0005_attachment_batches.sql" },
+        { version: 6, name: "0006_unknown_resolutions.sql" },
       ]);
     } finally {
       database.close(true);

@@ -6,6 +6,7 @@ import { loadConfig } from "../../src/config/Config";
 import { createLogger } from "../../src/logging/logger";
 import { startFakeGateway } from "../../src/main";
 import { openDatabase } from "../../src/persistence/sqlite/Database";
+import { acquireGatewayLease } from "../../src/persistence/sqlite/GatewayLease";
 import { SqliteConversationRepository } from "../../src/persistence/sqlite/SqliteConversationRepository";
 import { SqliteRequestRepository } from "../../src/persistence/sqlite/SqliteRequestRepository";
 import { FakeBarrier, FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
@@ -108,6 +109,69 @@ test("composition runs a Telegram round trip, closes gracefully, and persists ma
   expect(api.sent.map((message) => message.text).join("\n")).not.toContain("synthetic prompt");
   expect(logs.join("")).not.toContain("synthetic prompt");
   expect(logs.join("")).not.toContain("R4_SYNTHETIC_TOKEN");
+});
+
+test("runtime excludes maintenance and another runtime until provider disposal finishes", async () => {
+  const controller = new AbortController();
+  const polling = new FakeBarrier(),
+    closing = new FakeBarrier(),
+    finishClose = new FakeBarrier();
+  let closes = 0,
+    factories = 0;
+  const provider = Object.assign(new FakeChatProvider(), {
+    close: async () => {
+      closes++;
+      closing.release();
+      await finishClose.promise;
+    },
+  });
+  const api = new FakeTelegramApi();
+  api.getUpdates = async (_offset, signal) => {
+    polling.release();
+    return new Promise((_, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  };
+  const running = runGateway({
+    config: config(),
+    api,
+    provider,
+    providerLabel: "Fake",
+    chatPolicy: privatePolicy,
+    signal: controller.signal,
+    log: createLogger({ sink: () => {} }),
+  });
+  try {
+    await polling.promise;
+    expect(() => acquireGatewayLease(config().database.path)).toThrow("DATABASE_ERROR");
+    await expect(
+      runGateway({
+        config: config(),
+        api: new FakeTelegramApi(),
+        provider: () => {
+          factories++;
+          return new FakeChatProvider();
+        },
+        providerLabel: "Fake",
+        chatPolicy: privatePolicy,
+        signal: new AbortController().signal,
+        log: createLogger({ sink: () => {} }),
+      }),
+    ).rejects.toThrow("DATABASE_ERROR");
+    expect(factories).toBe(0);
+    controller.abort();
+    await closing.promise;
+    expect(() => acquireGatewayLease(config().database.path)).toThrow("DATABASE_ERROR");
+    finishClose.release();
+    await running;
+    expect(closes).toBe(1);
+    acquireGatewayLease(config().database.path)();
+  } finally {
+    controller.abort();
+    finishClose.release();
+    await running;
+  }
 });
 
 test.each(["completed", "unknown", "delivery_failed"] as const)(

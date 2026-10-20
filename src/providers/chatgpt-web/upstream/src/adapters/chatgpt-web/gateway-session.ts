@@ -35,10 +35,16 @@ export class GatewayBrowserError extends Error {
     super(code);
   }
 }
+export const gatewaySendUnknownReasons = [
+  "send_activation_unconfirmed",
+  "submission_ack_timeout",
+  "multiple_new_user_turns",
+  "submission_observation_failed",
+] as const;
 export type GatewaySendReceipt =
-  | { state: "submitted"; remoteId: string; turnId: string }
+  | { state: "submitted"; remoteId: string; turnId: string; activationRecovered?: true }
   | { state: "not_submitted"; code: GatewayCode }
-  | { state: "unknown" };
+  | { state: "unknown"; reason?: (typeof gatewaySendUnknownReasons)[number] };
 export type GatewayObservation =
   | { state: "running" }
   | { state: "completed"; text: string; messageId: string }
@@ -286,12 +292,19 @@ export class GatewayBrowserSession {
       };
       this.operation = operation;
       activated = true;
-      await send.press("Enter", { noWaitAfter: true, timeout: 20_000 });
+      let activationFailed = false;
+      try {
+        await send.press("Enter", { noWaitAfter: true, timeout: 20_000 });
+      } catch {
+        // Enter may already have submitted before Playwright reports an action error.
+        // Keep observing the same baseline/page; never activate Send again.
+        activationFailed = true;
+      }
       const deadline = Date.now() + 20_000;
       while (Date.now() < deadline) {
         const state = await this.primitives.state(page, baseline);
         const users = newUserIdentities(state, baseline);
-        if (users.length > 1) return { state: "unknown" };
+        if (users.length > 1) return { state: "unknown", reason: "multiple_new_user_turns" };
         const remoteId = gatewayConversationId(page.url());
         const turnId = users[0];
         if (
@@ -303,13 +316,21 @@ export class GatewayBrowserSession {
           operation.remoteId = remoteId;
           operation.turnId = turnId;
           baseline.acceptedUserIdentity = turnId;
-          return { state: "submitted", remoteId, turnId };
+          return {
+            state: "submitted",
+            remoteId,
+            turnId,
+            ...(activationFailed ? { activationRecovered: true as const } : {}),
+          };
         }
         await gatewayDelay(50);
       }
-      return { state: "unknown" };
+      return {
+        state: "unknown",
+        reason: activationFailed ? "send_activation_unconfirmed" : "submission_ack_timeout",
+      };
     } catch (error) {
-      if (activated) return { state: "unknown" };
+      if (activated) return { state: "unknown", reason: "submission_observation_failed" };
       return {
         state: "not_submitted",
         code: uploading

@@ -8,6 +8,7 @@ import {
 } from "../../src/providers/chatgpt-web/ChatGptWebProvider";
 import { GatewayBrowserError } from "../../src/providers/chatgpt-web/upstream/src/adapters/chatgpt-web/gateway-session";
 import { LocalAttachmentStore } from "../../src/storage/LocalAttachmentStore";
+import { createLogger } from "../../src/logging/logger";
 import type { ProviderSubmission } from "../../src/ports/ChatProvider";
 
 let root: string;
@@ -185,6 +186,110 @@ test("ambiguous native Send is not retried, including an explicit duplicate call
   expect((await provider.send(input)).state).toBe("unknown");
   expect(sends).toHaveLength(1);
 });
+
+test("submission diagnostics allow fixed reasons and never expose a native exception or arbitrary reason", async () => {
+  const { session } = native();
+  const lines: string[] = [];
+  const provider = new ChatGptWebProvider({
+    profileDir: join(root, "profile"),
+    session,
+    log: createLogger({ sink: (line) => lines.push(line) }),
+  });
+  const conversation = await provider.inspectConversation(remote);
+  for (const mode of ["known", "untrusted", "throw"] as const) {
+    session.send = async () => {
+      if (mode === "throw") throw new Error("private native cookie details");
+      return {
+        state: "unknown",
+        reason: mode === "known" ? "submission_ack_timeout" : "private native cookie details",
+      } as Awaited<ReturnType<NativeChatGptSession["send"]>>;
+    };
+    expect(
+      (
+        await provider.send({
+          conversationId: conversation.id,
+          clientRequestId: mode,
+          text: "private prompt",
+          attachments: [],
+        })
+      ).state,
+    ).toBe("unknown");
+  }
+  expect(lines.map((line) => JSON.parse(line).reason)).toEqual([
+    "submission_ack_timeout",
+    "native_send_unknown",
+    "submission_receipt_failed",
+  ]);
+  expect(lines.join("")).not.toContain("private");
+  await provider.close();
+});
+
+test("a recovered activation exposes only normal port submission and fixed diagnostic metadata", async () => {
+  const { session } = native();
+  session.send = async () => ({
+    state: "submitted",
+    remoteId: remote,
+    turnId: "accepted-user-turn",
+    activationRecovered: true,
+  });
+  const lines: string[] = [];
+  const provider = new ChatGptWebProvider({
+    profileDir: join(root, "profile"),
+    session,
+    log: createLogger({ sink: (line) => lines.push(line) }),
+  });
+  const conversation = await provider.inspectConversation(remote);
+  expect(
+    await provider.send({
+      conversationId: conversation.id,
+      clientRequestId: "r1",
+      text: "private prompt",
+      attachments: [],
+    }),
+  ).toEqual({
+    state: "submitted",
+    conversationId: conversation.id,
+    clientRequestId: "r1",
+    providerRequestId: "accepted-user-turn",
+  });
+  expect(JSON.parse(lines[0])).toMatchObject({
+    operation: "provider.submission_recovered",
+    requestId: "r1",
+    reason: "send_activation_error_with_receipt",
+  });
+  expect(lines.join("")).not.toContain("private");
+  await provider.close();
+});
+
+test.each(["submitted", "unknown"] as const)(
+  "optional diagnostic failure preserves %s submission",
+  async (state) => {
+    const { session } = native();
+    session.send = async () =>
+      state === "submitted"
+        ? { state, remoteId: remote, turnId: "accepted-user-turn", activationRecovered: true }
+        : { state, reason: "submission_ack_timeout" };
+    const provider = new ChatGptWebProvider({
+      profileDir: join(root, "profile"),
+      session,
+      log: () => {
+        throw new Error("private sink failure");
+      },
+    });
+    const conversation = await provider.inspectConversation(remote);
+    expect(
+      (
+        await provider.send({
+          conversationId: conversation.id,
+          clientRequestId: "r1",
+          text: "private prompt",
+          attachments: [],
+        })
+      ).state,
+    ).toBe(state);
+    await provider.close();
+  },
+);
 
 test("partial output stays running, foreign identity is unknown and abort detaches without cancellation", async () => {
   const { session } = native();

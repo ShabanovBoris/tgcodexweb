@@ -7,7 +7,7 @@ import {
   loadBrowserConfig,
 } from "../config/Config";
 import { createLogger } from "../logging/logger";
-import { bootstrap, startFakeGateway, startGateway } from "../main";
+import { bootstrap, recoverUnknown, startFakeGateway, startGateway } from "../main";
 import { ChatGptWebProvider } from "../providers/chatgpt-web/ChatGptWebProvider";
 import { ProviderOperationError } from "../ports/ChatProvider";
 import { DatabaseError, openDatabase } from "../persistence/sqlite/Database";
@@ -23,13 +23,20 @@ export async function runCli(
   const log = createLogger({ knownSecrets: [env.TELEGRAM_BOT_TOKEN?.trim() ?? ""] });
   try {
     checkToolchain();
+    const recoveryCommand =
+      args[0] === "recover:unknown" &&
+      args.length === 3 &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(args[1]) &&
+      args[2] === "--confirm-completed";
     if (
-      args.length !== 1 &&
-      !(
-        args.length === 2 &&
-        (args[0] === "start:fake" || args[0] === "start") &&
-        args[1] === "--private"
-      )
+      (args[0] === "recover:unknown" && !recoveryCommand) ||
+      (args.length !== 1 &&
+        !recoveryCommand &&
+        !(
+          args.length === 2 &&
+          (args[0] === "start:fake" || args[0] === "start") &&
+          args[1] === "--private"
+        ))
     ) {
       log("error", {
         operation: "cli.failed",
@@ -39,6 +46,16 @@ export async function runCli(
       return 1;
     }
     switch (args[0]) {
+      case "recover:unknown": {
+        const resolution = recoverUnknown(env, args[1], cwd);
+        log("info", {
+          operation: "request.unknown_resolved",
+          requestId: resolution.requestId,
+          requestState: "unknown",
+          reason: resolution.resolution,
+        });
+        return 0;
+      }
       case "bootstrap":
         bootstrap(env, cwd);
         return 0;

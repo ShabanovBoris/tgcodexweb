@@ -108,7 +108,12 @@ export class SqliteRequestQueueRepository implements RequestQueueRepository {
             `SELECT r.id AS requestId, c.provider_conversation_id AS providerConversationId, i.sequence, i.payload, a.request_id AS acceptedRequestId
          FROM requests r JOIN conversations c ON c.id=r.conversation_id LEFT JOIN request_inputs i ON i.request_id=r.id
          LEFT JOIN request_acceptances a ON a.request_id=r.id
-         WHERE r.state NOT IN ('completed','failed','cancelled','timeout') ORDER BY i.sequence, r.id`,
+         WHERE r.state NOT IN ('completed','failed','cancelled','timeout')
+         AND NOT (r.state='unknown' AND EXISTS (
+           SELECT 1 FROM request_unknown_resolutions resolution
+           WHERE resolution.request_id=r.id AND resolution.provider_conversation_id=c.provider_conversation_id
+           AND resolution.resolution='operator_confirmed_completed'
+         )) ORDER BY i.sequence, r.id`,
           )
           .all();
         for (const row of rows) {

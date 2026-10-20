@@ -272,6 +272,11 @@ Make abnormal execution safe.
 - database backup/migration notes;
 - temporary file cleanup at startup.
 
+The 2026-10-20 operator recovery slice adds offline explicit confirmation of a completed
+UNKNOWN without replay; queued successors are preserved for normal restart. See AC-F06
+and [operator recovery evidence](docs/verification/R7-unknown-recovery.md).
+Automatic correlation/resumption and the remaining R7 work are still pending.
+
 ## Failure injection tests
 
 Terminate process during:

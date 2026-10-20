@@ -230,6 +230,17 @@ then it is surfaced as ambiguous rather than blindly replayed.
 
 Restart recovery tests must demonstrate that ambiguity does not produce duplicate user prompts.
 
+## AC-F06 — Explicit operator completion of UNKNOWN
+
+Given the operator has inspected the exact ambiguous remote request and verified its
+completed response, with the bot stopped, the local
+`recover:unknown <request-id> --confirm-completed` command records a durable confirmation
+and releases only that UNKNOWN's matching canonical queue block. UNKNOWN lifecycle,
+submission metadata and deduplication remain unchanged. Repeating the command is idempotent.
+Queued successors retain input/FIFO and execute once on normal restart; the original request
+is never sent again. Missing confirmation, a non-UNKNOWN request or a running gateway must
+not release the block. Crash/restart must release the process lease without removing its file.
+
 ---
 
 # G. Attachments

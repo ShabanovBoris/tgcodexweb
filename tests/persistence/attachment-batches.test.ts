@@ -123,7 +123,7 @@ test("0005 upgrades populated 0004, rolls back a subsequent failed migration, an
     expect(db.query("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(ledger);
     db.close(true);
     db = openDatabase(path);
-    expect(migrateDatabase(db)).toBe(1);
+    expect(migrateDatabase(db)).toBe(2);
     expect(
       db.query("SELECT * FROM schema_migrations WHERE version<=4 ORDER BY version").all(),
     ).toEqual(ledger);
