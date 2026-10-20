@@ -224,14 +224,8 @@ test("submission diagnostics allow fixed reasons and never expose a native excep
   await provider.close();
 });
 
-test("a recovered activation exposes only normal port submission and fixed diagnostic metadata", async () => {
+test("confirmed submission preserves the port result without UNKNOWN diagnostics", async () => {
   const { session } = native();
-  session.send = async () => ({
-    state: "submitted",
-    remoteId: remote,
-    turnId: "accepted-user-turn",
-    activationRecovered: true,
-  });
   const lines: string[] = [];
   const provider = new ChatGptWebProvider({
     profileDir: join(root, "profile"),
@@ -252,44 +246,47 @@ test("a recovered activation exposes only normal port submission and fixed diagn
     clientRequestId: "r1",
     providerRequestId: "accepted-user-turn",
   });
-  expect(JSON.parse(lines[0])).toMatchObject({
-    operation: "provider.submission_recovered",
-    requestId: "r1",
-    reason: "send_activation_error_with_receipt",
-  });
-  expect(lines.join("")).not.toContain("private");
+  expect(lines).toHaveLength(0);
   await provider.close();
 });
 
-test.each(["submitted", "unknown"] as const)(
-  "optional diagnostic failure preserves %s submission",
-  async (state) => {
-    const { session } = native();
-    session.send = async () =>
-      state === "submitted"
-        ? { state, remoteId: remote, turnId: "accepted-user-turn", activationRecovered: true }
-        : { state, reason: "submission_ack_timeout" };
-    const provider = new ChatGptWebProvider({
-      profileDir: join(root, "profile"),
-      session,
-      log: () => {
-        throw new Error("private sink failure");
-      },
-    });
-    const conversation = await provider.inspectConversation(remote);
-    expect(
-      (
-        await provider.send({
-          conversationId: conversation.id,
-          clientRequestId: "r1",
-          text: "private prompt",
-          attachments: [],
-        })
-      ).state,
-    ).toBe(state);
-    await provider.close();
-  },
-);
+test("a diagnostic failure preserves UNKNOWN and cannot bind a foreign response", async () => {
+  const { session, sends } = native();
+  let observations = 0,
+    diagnostics = 0;
+  session.send = async (input) => {
+    sends.push(input);
+    return { state: "unknown", reason: "send_activation_unconfirmed" };
+  };
+  session.observe = async () => {
+    observations++;
+    return { state: "completed", text: "foreign answer", messageId: "foreign-response" };
+  };
+  const provider = new ChatGptWebProvider({
+    profileDir: join(root, "profile"),
+    session,
+    log: () => {
+      diagnostics++;
+      throw new Error("private sink failure");
+    },
+  });
+  const conversation = await provider.inspectConversation(remote);
+  const input = {
+    conversationId: conversation.id,
+    clientRequestId: "r1",
+    text: "private prompt",
+    attachments: [],
+  };
+  expect((await provider.send(input)).state).toBe("unknown");
+  expect(
+    (await provider.inspectRequest({ ...input, providerRequestId: "group:user:foreign" })).state,
+  ).toBe("unknown");
+  expect((await provider.send(input)).state).toBe("unknown");
+  expect(sends).toHaveLength(1);
+  expect(observations).toBe(0);
+  expect(diagnostics).toBe(1);
+  await provider.close();
+});
 
 test("partial output stays running, foreign identity is unknown and abort detaches without cancellation", async () => {
   const { session } = native();

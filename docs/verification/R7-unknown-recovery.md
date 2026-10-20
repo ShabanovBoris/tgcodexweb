@@ -56,9 +56,9 @@ The bot was not started and queued requests were not dispatched during this main
 ## Limits
 
 The original submission acknowledgement failure was not established by this receipt;
-the subsequent [Send action correction](R7-send-acknowledgement.md) addresses a reproducible
-post-Enter error path and adds diagnostic reasons. Full UNKNOWN UX,
-automatic observation recovery, durable delivery retry, doctor and remaining R7/R8 acceptance
+the subsequent [Send action review correction](R7-send-acknowledgement.md) preserves UNKNOWN
+on ambiguous Enter errors, rejects foreign-turn correlation and adds diagnostic reasons.
+Full UNKNOWN UX, automatic observation recovery, durable delivery retry, doctor and remaining R7/R8 acceptance
 are outside this slice. The lease coordinates this version's entry points; older bot versions
 must be stopped before maintenance. Operator confirmation requires actual inspection of
 the exact remote response; a timeout or missing Stop button alone is insufficient.

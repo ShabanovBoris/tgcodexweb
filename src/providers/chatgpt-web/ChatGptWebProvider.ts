@@ -145,7 +145,6 @@ export class ChatGptWebProvider implements ChatProvider {
           return { ...identity, state: "not_submitted", code: preSubmitCode(result.code) };
         if (result.state === "unknown") {
           this.logSubmission(
-            "provider.submission_unknown",
             input.clientRequestId,
             gatewaySendUnknownReasons.find((reason) => reason === result.reason) ??
               "native_send_unknown",
@@ -155,19 +154,9 @@ export class ChatGptWebProvider implements ChatProvider {
         // Persist the remote binding before exposing confirmed submission. Failure is ambiguous.
         this.profile.bind(input.conversationId, result.remoteId);
         this.current = { ...identity, state: "submitted", providerRequestId: result.turnId };
-        if (result.activationRecovered)
-          this.logSubmission(
-            "provider.submission_recovered",
-            input.clientRequestId,
-            "send_activation_error_with_receipt",
-          );
         return { ...this.current };
       } catch {
-        this.logSubmission(
-          "provider.submission_unknown",
-          input.clientRequestId,
-          "submission_receipt_failed",
-        );
+        this.logSubmission(input.clientRequestId, "submission_receipt_failed");
         return this.unknown(identity);
       }
     });
@@ -269,13 +258,9 @@ export class ChatGptWebProvider implements ChatProvider {
     );
   }
 
-  private logSubmission(
-    operation: "provider.submission_unknown" | "provider.submission_recovered",
-    requestId: string,
-    reason: string,
-  ): void {
+  private logSubmission(requestId: string, reason: string): void {
     try {
-      this.options.log?.("warn", { operation, requestId, reason });
+      this.options.log?.("warn", { operation: "provider.submission_unknown", requestId, reason });
     } catch {
       // Optional diagnostics cannot replace an established submission result.
     }

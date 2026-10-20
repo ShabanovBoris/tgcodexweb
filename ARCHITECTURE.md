@@ -805,12 +805,13 @@ tracker and Markdown buffer. Interrupted observation returns UNKNOWN without Sto
 replay; restart has no in-memory correlation. Local browser fixtures do not satisfy live
 acceptance, which remains explicitly opt-in.
 
-R7 keeps the one physical Enter activation separate from its acknowledgement: an action
-error may occur after submission. After that action settles, the adapter still performs
-the existing bounded, read-only acknowledgement check on the same page/baseline. One new
-logical user turn and the matching remote URL can confirm submission; missing, competing
-or unreadable evidence remains UNKNOWN. Enter is never repeated. Fixed reason codes for
-UNKNOWN and confirmation after an action error are logged without raw exceptions/content.
+R7 treats an Enter action error as UNKNOWN: the error can occur before or after dispatch,
+and a sole new logical user turn at the matching URL may belong to another sender.
+Without input-level evidence, the adapter does not bind or observe that turn and never
+repeats Enter. After a successful Enter action, the existing bounded acknowledgement
+check on the same page/baseline remains unchanged. Fixed UNKNOWN reason codes are logged
+without raw exceptions or content. Releasing an UNKNOWN queue block requires the explicit
+operator confirmation described in AC-F06.
 
 ---
 
