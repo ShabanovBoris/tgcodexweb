@@ -35,10 +35,16 @@ export class GatewayBrowserError extends Error {
     super(code);
   }
 }
+export const gatewaySendUnknownReasons = [
+  "send_activation_unconfirmed",
+  "submission_ack_timeout",
+  "multiple_new_user_turns",
+  "submission_observation_failed",
+] as const;
 export type GatewaySendReceipt =
   | { state: "submitted"; remoteId: string; turnId: string }
   | { state: "not_submitted"; code: GatewayCode }
-  | { state: "unknown" };
+  | { state: "unknown"; reason?: (typeof gatewaySendUnknownReasons)[number] };
 export type GatewayObservation =
   | { state: "running" }
   | { state: "completed"; text: string; messageId: string }
@@ -286,12 +292,18 @@ export class GatewayBrowserSession {
       };
       this.operation = operation;
       activated = true;
-      await send.press("Enter", { noWaitAfter: true, timeout: 20_000 });
+      try {
+        await send.press("Enter", { noWaitAfter: true, timeout: 20_000 });
+      } catch {
+        // A press error can precede dispatch; a new turn may belong to another sender.
+        // Without input-level evidence, neither bind that turn nor activate Send again.
+        return { state: "unknown", reason: "send_activation_unconfirmed" };
+      }
       const deadline = Date.now() + 20_000;
       while (Date.now() < deadline) {
         const state = await this.primitives.state(page, baseline);
         const users = newUserIdentities(state, baseline);
-        if (users.length > 1) return { state: "unknown" };
+        if (users.length > 1) return { state: "unknown", reason: "multiple_new_user_turns" };
         const remoteId = gatewayConversationId(page.url());
         const turnId = users[0];
         if (
@@ -307,9 +319,9 @@ export class GatewayBrowserSession {
         }
         await gatewayDelay(50);
       }
-      return { state: "unknown" };
+      return { state: "unknown", reason: "submission_ack_timeout" };
     } catch (error) {
-      if (activated) return { state: "unknown" };
+      if (activated) return { state: "unknown", reason: "submission_observation_failed" };
       return {
         state: "not_submitted",
         code: uploading

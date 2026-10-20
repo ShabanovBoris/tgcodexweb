@@ -159,4 +159,6 @@ export interface ChatProvider {
   ): Promise<ProviderOutcome>;
   cancel(reference: ProviderRequestReference): Promise<ProviderCancelResult>;
   inspectRequest(reference: ProviderRequestReference): Promise<ProviderObservation>;
+  // The runtime keeps its process lease until owned provider resources finish closing.
+  close?(): Promise<void>;
 }

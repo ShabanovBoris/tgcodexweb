@@ -5,6 +5,7 @@ import type { Config } from "../config/Config";
 import type { Request } from "../domain/Request";
 import { createLogger } from "../logging/logger";
 import { openDatabase } from "../persistence/sqlite/Database";
+import { acquireGatewayLease } from "../persistence/sqlite/GatewayLease";
 import { migrateDatabase } from "../persistence/sqlite/migrations";
 import { SqliteAttachmentBatchRepository } from "../persistence/sqlite/SqliteAttachmentBatchRepository";
 import { SqliteConversationRepository } from "../persistence/sqlite/SqliteConversationRepository";
@@ -48,6 +49,8 @@ export async function runGateway(
       knownSecrets: [input.config.telegram.botToken],
     });
   let database: ReturnType<typeof openDatabase> | undefined;
+  let releaseLease: (() => void) | undefined;
+  let provider: ChatProvider | undefined;
   let service: RequestService | undefined;
   let bot: TelegramBot | undefined;
   let cleanupTimer: ReturnType<typeof setInterval> | undefined;
@@ -58,6 +61,7 @@ export async function runGateway(
     api: input.api,
     log,
     initialize: async (identity) => {
+      releaseLease = acquireGatewayLease(input.config.database.path);
       database = openDatabase(input.config.database.path);
       migrateDatabase(database);
       const mappings = new SqliteConversationRepository(database);
@@ -97,7 +101,7 @@ export async function runGateway(
         },
         Math.min(input.config.attachments.tempTtlMs, 60000),
       );
-      const provider =
+      provider =
         typeof input.provider === "function" ? input.provider(mappings, store) : input.provider;
       const conversations = new ConversationService(mappings, provider, now, () =>
         crypto.randomUUID(),
@@ -161,7 +165,15 @@ export async function runGateway(
     await runner.run(input.signal);
   } finally {
     clearInterval(cleanupTimer);
-    await cleanupTask;
-    database?.close(true);
+    try {
+      await cleanupTask;
+      database?.close(true);
+    } finally {
+      try {
+        await provider?.close?.();
+      } finally {
+        releaseLease?.();
+      }
+    }
   }
 }

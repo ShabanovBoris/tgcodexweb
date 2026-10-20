@@ -18,6 +18,7 @@
     "test": "bun test ./tests",
     "config:check": "bun run src/cli/index.ts config:check",
     "db:migrate": "bun run src/cli/index.ts db:migrate",
+    "recover:unknown": "bun run src/cli/index.ts recover:unknown",
     "start": "bun run src/cli/index.ts start",
     "bootstrap": "bun run src/cli/index.ts bootstrap",
     "start:fake": "bun run src/cli/index.ts start:fake",

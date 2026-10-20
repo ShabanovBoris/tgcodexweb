@@ -233,6 +233,13 @@ Bot: <final response>
 
 Streaming partial tokens is not required for MVP.
 
+An operator who has verified that the exact ambiguous request has a completed response
+in ChatGPT can release its queue block with the local, offline
+`recover:unknown <request-id> --confirm-completed` command. The bot must be stopped.
+The original UNKNOWN and deduplication history remain intact; a separate operator
+confirmation releases capacity. The command neither repeats the request nor recovers its
+answer. Independently queued requests remain available for the next normal start.
+
 ---
 
 ## 9. File support

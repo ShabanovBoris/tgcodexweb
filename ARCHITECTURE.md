@@ -577,7 +577,8 @@ inspection. Correlated terminal evidence settles interrupted work; a recovered s
 timestamp records local evidence observation, not an invented upstream timestamp. Proven
 not-submitted uploading/sending work becomes failed without replay. Otherwise interrupted
 uploading/sending/running/cancel-requested becomes UNKNOWN. Even correlated still-running
-work is conservatively UNKNOWN; observation resumption is deferred. Existing UNKNOWN and
+work is conservatively UNKNOWN; observation resumption is deferred. Existing UNKNOWN without
+an explicit R7 operator resolution and
 incomplete created/queued input remain blocked without reclassification or replay.
 
 `stop` addresses the active canonical key, requires confirmed submission and cancellation
@@ -600,8 +601,8 @@ after both calls settle. If neither source has valid terminal evidence, UNKNOWN 
 
 Final result delivery occurs only after durable settlement/retention. Delivery failure is
 reported separately in service diagnostics and cannot resubmit or reclassify completion.
-Those delivery diagnostics are in-memory in R3; durable delivery retries and operator
-resolution of UNKNOWN belong to R7. Shutdown waits active effects and startup reconciliation.
+Those delivery diagnostics are in-memory in R3; durable delivery retries belong to R7.
+R7 operator resolution is described below. Shutdown waits active effects and startup reconciliation.
 
 ---
 
@@ -658,6 +659,26 @@ mutations and UNKNOWN requests gain no replay path. Webhooks are never deleted.
 Signal shutdown aborts polling/backoff, stops admission and joins active request effects
 before database closure. This slice is not full R7 operational recovery; see
 [verification](docs/verification/R7.md).
+
+The operator-approved R7 recovery slice (2026-10-20) adds the offline CLI command
+`recover:unknown <request-id> --confirm-completed`. The flag asserts that the operator
+has inspected the exact remote request and verified its completed response. It is not
+provider correlation evidence: `requests.state=unknown`, submission timestamps, provider
+correlation, retention and dedup markers remain unchanged. An atomic, idempotent row in
+`request_unknown_resolutions` records request ID, canonical provider key, confirmation time
+and the fixed `operator_confirmed_completed` resolution. Only that UNKNOWN's matching
+key is omitted from queue blockers; other ambiguity still reserves its key/capacity.
+Queued successors keep their original inputs and FIFO order and run only at normal startup.
+No provider/browser/Telegram operation occurs in the maintenance command.
+
+Runtime startup after Telegram token validation and offline recovery acquire the same
+exclusive SQLite lease in a separate `<canonical-database-path>-gateway-lock` file.
+The application database remains independently writable. Recovery fails with `gateway_busy`
+while a runtime owns the lease; runtime disposal holds it through request shutdown and
+optional `ChatProvider.close()`. A process crash releases the OS lock without deleting
+the file. This protocol applies to this version's entry points; an older bot must be
+fully stopped before using recovery. Operator confirmation does not infer completion
+from a timeout or the absence of a Stop button. Automatic UNKNOWN replay remains forbidden.
 
 Fake mode uses a separate database with a `fake-` basename prefix and a clearly labelled
 status. It does not use the real database/profile or represent real remote history.
@@ -783,6 +804,14 @@ Completion reuses the upstream logical-turn baseline, DOM extraction, stable fin
 tracker and Markdown buffer. Interrupted observation returns UNKNOWN without Stop or
 replay; restart has no in-memory correlation. Local browser fixtures do not satisfy live
 acceptance, which remains explicitly opt-in.
+
+R7 treats an Enter action error as UNKNOWN: the error can occur before or after dispatch,
+and a sole new logical user turn at the matching URL may belong to another sender.
+Without input-level evidence, the adapter does not bind or observe that turn and never
+repeats Enter. After a successful Enter action, the existing bounded acknowledgement
+check on the same page/baseline remains unchanged. Fixed UNKNOWN reason codes are logged
+without raw exceptions or content. Releasing an UNKNOWN queue block requires the explicit
+operator confirmation described in AC-F06.
 
 ---
 

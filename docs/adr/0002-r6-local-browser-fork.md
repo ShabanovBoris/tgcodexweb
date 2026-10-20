@@ -80,8 +80,14 @@ probe and requires one editable composer. Missing authentication is AUTH_REQUIRE
 network/malformed/session-check/browser failures are unavailable. No diagnostic uploads
 or prompts occur, and raw errors/account data are never returned or logged.
 
-The first physical Send activation is the ambiguity boundary. After activation, loss,
-missing identities, uncertain URL or errors become UNKNOWN. No adapter retry exists.
+The first Send activation attempt is the ambiguity boundary. After activation, loss,
+missing identities, uncertain URL or unproven errors become UNKNOWN. No adapter retry exists.
+An Enter action error may precede dispatch; a sole new user turn at the expected URL does
+not prove ownership of our input. The R7 review correction therefore leaves any such error
+UNKNOWN without binding a turn or observing its response. Enter is never pressed again.
+The bounded receipt check after a successful Enter is unchanged. Fixed diagnostics distinguish
+activation failure, acknowledgement timeout, competing turns and observation failure without
+raw errors.
 Submission uses logical IDs and a pre-send baseline, not display indices or the latest
 response. Observation is bound to that exact operation, user turn, remote URL and new
 assistant turn; a competing user turn invalidates it. Partial text stays running.

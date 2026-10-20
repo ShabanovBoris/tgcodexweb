@@ -18,6 +18,7 @@ export class DatabaseError extends Error {
       | "entity_not_found"
       | "invalid_selection"
       | "invalid_request_input"
+      | "gateway_busy"
       | "migration_failed",
     cause?: unknown,
   ) {

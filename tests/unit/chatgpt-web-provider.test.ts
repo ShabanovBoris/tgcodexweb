@@ -8,6 +8,7 @@ import {
 } from "../../src/providers/chatgpt-web/ChatGptWebProvider";
 import { GatewayBrowserError } from "../../src/providers/chatgpt-web/upstream/src/adapters/chatgpt-web/gateway-session";
 import { LocalAttachmentStore } from "../../src/storage/LocalAttachmentStore";
+import { createLogger } from "../../src/logging/logger";
 import type { ProviderSubmission } from "../../src/ports/ChatProvider";
 
 let root: string;
@@ -184,6 +185,107 @@ test("ambiguous native Send is not retried, including an explicit duplicate call
   expect((await provider.send(input)).state).toBe("unknown");
   expect((await provider.send(input)).state).toBe("unknown");
   expect(sends).toHaveLength(1);
+});
+
+test("submission diagnostics allow fixed reasons and never expose a native exception or arbitrary reason", async () => {
+  const { session } = native();
+  const lines: string[] = [];
+  const provider = new ChatGptWebProvider({
+    profileDir: join(root, "profile"),
+    session,
+    log: createLogger({ sink: (line) => lines.push(line) }),
+  });
+  const conversation = await provider.inspectConversation(remote);
+  for (const mode of ["known", "untrusted", "throw"] as const) {
+    session.send = async () => {
+      if (mode === "throw") throw new Error("private native cookie details");
+      return {
+        state: "unknown",
+        reason: mode === "known" ? "submission_ack_timeout" : "private native cookie details",
+      } as Awaited<ReturnType<NativeChatGptSession["send"]>>;
+    };
+    expect(
+      (
+        await provider.send({
+          conversationId: conversation.id,
+          clientRequestId: mode,
+          text: "private prompt",
+          attachments: [],
+        })
+      ).state,
+    ).toBe("unknown");
+  }
+  expect(lines.map((line) => JSON.parse(line).reason)).toEqual([
+    "submission_ack_timeout",
+    "native_send_unknown",
+    "submission_receipt_failed",
+  ]);
+  expect(lines.join("")).not.toContain("private");
+  await provider.close();
+});
+
+test("confirmed submission preserves the port result without UNKNOWN diagnostics", async () => {
+  const { session } = native();
+  const lines: string[] = [];
+  const provider = new ChatGptWebProvider({
+    profileDir: join(root, "profile"),
+    session,
+    log: createLogger({ sink: (line) => lines.push(line) }),
+  });
+  const conversation = await provider.inspectConversation(remote);
+  expect(
+    await provider.send({
+      conversationId: conversation.id,
+      clientRequestId: "r1",
+      text: "private prompt",
+      attachments: [],
+    }),
+  ).toEqual({
+    state: "submitted",
+    conversationId: conversation.id,
+    clientRequestId: "r1",
+    providerRequestId: "accepted-user-turn",
+  });
+  expect(lines).toHaveLength(0);
+  await provider.close();
+});
+
+test("a diagnostic failure preserves UNKNOWN and cannot bind a foreign response", async () => {
+  const { session, sends } = native();
+  let observations = 0,
+    diagnostics = 0;
+  session.send = async (input) => {
+    sends.push(input);
+    return { state: "unknown", reason: "send_activation_unconfirmed" };
+  };
+  session.observe = async () => {
+    observations++;
+    return { state: "completed", text: "foreign answer", messageId: "foreign-response" };
+  };
+  const provider = new ChatGptWebProvider({
+    profileDir: join(root, "profile"),
+    session,
+    log: () => {
+      diagnostics++;
+      throw new Error("private sink failure");
+    },
+  });
+  const conversation = await provider.inspectConversation(remote);
+  const input = {
+    conversationId: conversation.id,
+    clientRequestId: "r1",
+    text: "private prompt",
+    attachments: [],
+  };
+  expect((await provider.send(input)).state).toBe("unknown");
+  expect(
+    (await provider.inspectRequest({ ...input, providerRequestId: "group:user:foreign" })).state,
+  ).toBe("unknown");
+  expect((await provider.send(input)).state).toBe("unknown");
+  expect(sends).toHaveLength(1);
+  expect(observations).toBe(0);
+  expect(diagnostics).toBe(1);
+  await provider.close();
 });
 
 test("partial output stays running, foreign identity is unknown and abort detaches without cancellation", async () => {

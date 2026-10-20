@@ -1,4 +1,5 @@
 import type { AttachmentStore } from "../../ports/AttachmentStore";
+import type { createLogger } from "../../logging/logger";
 import {
   type ChatProvider,
   ProviderOperationError,
@@ -15,6 +16,7 @@ import { ChatGptBrowserWorker } from "./upstream/src/adapters/chatgpt-web/browse
 import {
   gatewayConversationId,
   gatewayDelay,
+  gatewaySendUnknownReasons,
   GatewayBrowserError,
   type GatewayCode,
   type GatewayBrowserSession,
@@ -64,6 +66,7 @@ export class ChatGptWebProvider implements ChatProvider {
       headless?: boolean;
       attachmentStore?: AttachmentStore;
       session?: NativeChatGptSession;
+      log?: ReturnType<typeof createLogger>;
     },
   ) {
     this.profile = new BrowserProfile(options.profileDir);
@@ -140,12 +143,20 @@ export class ChatGptWebProvider implements ChatProvider {
         });
         if (result.state === "not_submitted")
           return { ...identity, state: "not_submitted", code: preSubmitCode(result.code) };
-        if (result.state === "unknown") return this.unknown(identity);
+        if (result.state === "unknown") {
+          this.logSubmission(
+            input.clientRequestId,
+            gatewaySendUnknownReasons.find((reason) => reason === result.reason) ??
+              "native_send_unknown",
+          );
+          return this.unknown(identity);
+        }
         // Persist the remote binding before exposing confirmed submission. Failure is ambiguous.
         this.profile.bind(input.conversationId, result.remoteId);
         this.current = { ...identity, state: "submitted", providerRequestId: result.turnId };
         return { ...this.current };
       } catch {
+        this.logSubmission(input.clientRequestId, "submission_receipt_failed");
         return this.unknown(identity);
       }
     });
@@ -245,6 +256,14 @@ export class ChatGptWebProvider implements ChatProvider {
       (!reference.providerRequestId ||
         this.current.providerRequestId === reference.providerRequestId)
     );
+  }
+
+  private logSubmission(requestId: string, reason: string): void {
+    try {
+      this.options.log?.("warn", { operation: "provider.submission_unknown", requestId, reason });
+    } catch {
+      // Optional diagnostics cannot replace an established submission result.
+    }
   }
   private unknown(reference: ProviderRequestReference): ProviderOutcome & { state: "unknown" } {
     return {

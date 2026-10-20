@@ -1,8 +1,11 @@
 import { basename, dirname, join } from "node:path";
-import { type Environment, loadConfig } from "./config/Config";
+import { existsSync } from "node:fs";
+import { type Environment, loadConfig, loadDatabaseConfig } from "./config/Config";
 import { createLogger } from "./logging/logger";
-import { openDatabase } from "./persistence/sqlite/Database";
+import { DatabaseError, openDatabase } from "./persistence/sqlite/Database";
+import { acquireGatewayLease } from "./persistence/sqlite/GatewayLease";
 import { migrateDatabase } from "./persistence/sqlite/migrations";
+import { SqliteUnknownRecoveryRepository } from "./persistence/sqlite/SqliteUnknownRecoveryRepository";
 import { FakeChatProvider } from "./providers/fake/FakeChatProvider";
 import { ChatGptWebProvider } from "./providers/chatgpt-web/ChatGptWebProvider";
 import { runGateway, type TelegramChatPolicy } from "./runtime/GatewayRuntime";
@@ -22,6 +25,27 @@ export function bootstrap(env: Environment, cwd = process.cwd()): void {
     log("info", { operation: "bootstrap.complete" });
   } finally {
     database.close(true);
+  }
+}
+
+export function recoverUnknown(env: Environment, requestId: string, cwd = process.cwd()) {
+  const config = loadDatabaseConfig(env, cwd);
+  if (!existsSync(config.path)) throw new DatabaseError("entity_not_found");
+  const release = acquireGatewayLease(config.path);
+  let database: ReturnType<typeof openDatabase> | undefined;
+  try {
+    database = openDatabase(config.path);
+    migrateDatabase(database);
+    return new SqliteUnknownRecoveryRepository(database).confirmCompleted(
+      requestId,
+      new Date().toISOString(),
+    );
+  } finally {
+    try {
+      database?.close(true);
+    } finally {
+      release();
+    }
   }
 }
 
@@ -80,20 +104,18 @@ export async function startGateway(
   api?: TelegramApi,
 ): Promise<void> {
   const config = loadConfig(env, cwd);
-  let provider: ChatGptWebProvider | undefined;
-  try {
-    await runGateway({
-      config,
-      api: api ?? new HttpTelegramApi(config.telegram.botToken),
-      provider: (_mappings, attachmentStore) => {
-        provider = new ChatGptWebProvider({ ...config.browser, attachmentStore });
-        return provider;
-      },
-      providerLabel: "ChatGPT Web (local upstream fork)",
-      chatPolicy: privateChatPolicy,
-      signal,
-    });
-  } finally {
-    await provider?.close();
-  }
+  const log = createLogger({
+    level: config.logging.level,
+    knownSecrets: [config.telegram.botToken],
+  });
+  await runGateway({
+    config,
+    api: api ?? new HttpTelegramApi(config.telegram.botToken),
+    provider: (_mappings, attachmentStore) =>
+      new ChatGptWebProvider({ ...config.browser, attachmentStore, log }),
+    providerLabel: "ChatGPT Web (local upstream fork)",
+    chatPolicy: privateChatPolicy,
+    signal,
+    log,
+  });
 }

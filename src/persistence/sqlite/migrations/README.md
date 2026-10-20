@@ -1,5 +1,12 @@
 # Forward migrations
 
+R7 adds `0006_unknown_resolutions.sql`, an initially empty table of explicit operator
+confirmations. Its request PK/FK prevents orphan or duplicate resolution identities; the
+fixed resolution value permits no retry instruction. It stores no prompt, answer or
+attachment reference. Existing request lifecycle and all previous rows/ledger stay unchanged.
+Queue reconstruction releases only an UNKNOWN with a confirmation for its exact canonical
+key. The offline writer runs under the same SQLite process lease as the bot.
+
 R0 initialized only `schema_migrations`, with no applied production migrations.
 R1 adds `0001_domain.sql`; an R0 database upgrades by applying this first business migration.
 
