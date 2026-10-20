@@ -275,7 +275,16 @@ Make abnormal execution safe.
 The 2026-10-20 operator recovery slice adds offline explicit confirmation of a completed
 UNKNOWN without replay; queued successors are preserved for normal restart. See AC-F06
 and [operator recovery evidence](docs/verification/R7-unknown-recovery.md).
-Automatic correlation/resumption and the remaining R7 work are still pending.
+The following operational slice adds read-only CLI/Telegram doctor, detailed scoped status,
+actionable UNKNOWN guidance and durable final-result delivery (AC-D05). Its 2026-10-20
+approved policy allows duplicate ambiguous Telegram parts, never another provider prompt,
+and deletes operational output after delivery or 24-hour expiry cleanup. See
+[operational evidence](docs/verification/R7-operations.md).
+Read-only provider probes now recover from failed navigation/closed contexts, coalesce
+concurrent checks and join disposal. Initial `getMe` has bounded, cancellable retries before
+application effects. Automatic correlation/resumption of ambiguous provider work remains
+deferred; UNKNOWN keeps the approved conservative policy. Full R7/R8 acceptance has not
+been declared complete; the new delta still requires independent review and release checks.
 
 ## Failure injection tests
 

@@ -14,6 +14,7 @@ test("required commands have explicit arity, aliases and references are passed w
     ["/rename Code New", "rename", ["Code", "New"]],
     ["/remove New", "remove", ["New"]],
     ["/status", "status", []],
+    ["/doctor", "doctor", []],
     ["/stop", "stop", []],
   ] as const) {
     expect(parseTelegramCommand(text, "r4_bot")).toEqual({
@@ -41,6 +42,7 @@ test("bot-qualified commands match this bot only; malformed or extra arguments n
     "/rename old",
     "/remove",
     "/status extra",
+    "/doctor extra",
     "/unknown",
     "/help!",
     "/constructor",

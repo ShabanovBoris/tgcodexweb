@@ -18,6 +18,15 @@ type Dependencies = Readonly<{
 
 const retryDelaysMs = [1000, 2000, 4000, 8000, 16000] as const;
 const maxRetryDelayMs = 60000;
+function retryFailureReason(minimum: number | undefined, retries: number) {
+  return minimum === undefined || !Number.isSafeInteger(minimum) || minimum < 0
+    ? "not_retryable"
+    : minimum > maxRetryDelayMs
+      ? "retry_after_exceeds_limit"
+      : retries === retryDelaysMs.length
+        ? "retry_exhausted"
+        : undefined;
+}
 
 async function wait(delayMs: number, signal: AbortSignal): Promise<void> {
   try {
@@ -80,7 +89,7 @@ export class TelegramPolling {
 
   private async poll(signal: AbortSignal): Promise<void> {
     if (signal.aborted) return;
-    const identity = await this.dependencies.api.getMe();
+    const identity = await this.identity(signal);
     if (signal.aborted) return;
     await this.dependencies.initialize(identity);
     if (signal.aborted) return;
@@ -97,14 +106,7 @@ export class TelegramPolling {
           error instanceof TelegramError && error.code === "TELEGRAM_UNAVAILABLE"
             ? error.pollingRetryAfterMs
             : undefined;
-        const reason =
-          minimum === undefined || !Number.isSafeInteger(minimum) || minimum < 0
-            ? "not_retryable"
-            : minimum > maxRetryDelayMs
-              ? "retry_after_exceeds_limit"
-              : retries === retryDelaysMs.length
-                ? "retry_exhausted"
-                : undefined;
+        const reason = retryFailureReason(minimum, retries);
         if (reason) {
           this.dependencies.log?.("error", {
             operation: "telegram.poll_failed",
@@ -145,5 +147,46 @@ export class TelegramPolling {
   private shutdown(): Promise<void> {
     this.closing ??= Promise.resolve().then(() => this.dependencies.shutdown());
     return this.closing;
+  }
+
+  private async identity(signal: AbortSignal): Promise<TelegramIdentity> {
+    let retries = 0;
+    for (;;) {
+      signal.throwIfAborted();
+      try {
+        const identity = await this.dependencies.api.getMe(signal);
+        signal.throwIfAborted();
+        if (retries)
+          this.dependencies.log?.("info", {
+            operation: "telegram.identity_recovered",
+            retryAttempt: retries,
+          });
+        return identity;
+      } catch (error) {
+        signal.throwIfAborted();
+        const minimum =
+          error instanceof TelegramError && error.code === "TELEGRAM_UNAVAILABLE"
+            ? error.identityRetryAfterMs
+            : undefined;
+        const reason = retryFailureReason(minimum, retries);
+        if (reason) {
+          this.dependencies.log?.("error", {
+            operation: "telegram.identity_failed",
+            errorCode: error instanceof TelegramError ? error.code : "TELEGRAM_UNAVAILABLE",
+            reason,
+          });
+          throw error;
+        }
+        const retryDelayMs = Math.max(retryDelaysMs[retries], minimum as number);
+        retries++;
+        this.dependencies.log?.("warn", {
+          operation: "telegram.identity_retry",
+          errorCode: "TELEGRAM_UNAVAILABLE",
+          retryAttempt: retries,
+          retryDelayMs,
+        });
+        await (this.dependencies.wait ?? wait)(retryDelayMs, signal);
+      }
+    }
   }
 }

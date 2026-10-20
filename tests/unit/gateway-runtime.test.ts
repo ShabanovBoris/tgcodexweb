@@ -62,6 +62,49 @@ test("composition validates bot token before database effects/provider startup",
   expect(existsSync(config().database.path)).toBe(false);
 });
 
+test("transient getMe recovery precedes database effects and initializes one provider for one prompt", async () => {
+  const api = new FakeTelegramApi(),
+    provider = new FakeChatProvider();
+  const controller = new AbortController();
+  const logs: string[] = [];
+  let identities = 0,
+    factories = 0,
+    polls = 0;
+  api.getMe = async () => {
+    expect(existsSync(config().database.path)).toBe(false);
+    expect(factories).toBe(0);
+    if (++identities === 1)
+      throw new TelegramError("TELEGRAM_UNAVAILABLE", undefined, undefined, 0);
+    return { id: 777, username: "test_bot" };
+  };
+  api.getUpdates = async (_offset, signal) => {
+    if (++polls === 1) return [update(1, "/add coding remote"), update(2, "private prompt")];
+    return new Promise((_, reject) => {
+      if (signal.aborted) reject(signal.reason);
+      else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+  };
+  api.sendFailure = (message) => {
+    if (message.parseMode) controller.abort();
+  };
+  await runGateway({
+    config: config(),
+    api,
+    provider: () => {
+      factories++;
+      return provider;
+    },
+    providerLabel: "Fake",
+    chatPolicy: privatePolicy,
+    signal: controller.signal,
+    log: createLogger({ sink: (line) => logs.push(line) }),
+  });
+  expect({ identities, factories }).toEqual({ identities: 2, factories: 1 });
+  expect(provider.submissions).toHaveLength(1);
+  expect(logs.map((line) => JSON.parse(line).operation)).toContain("telegram.identity_recovered");
+  expect(logs.join("")).not.toContain("private prompt");
+});
+
 test("composition runs a Telegram round trip, closes gracefully, and persists mapping/request/dedup", async () => {
   const api = new FakeTelegramApi();
   const provider = new FakeChatProvider();

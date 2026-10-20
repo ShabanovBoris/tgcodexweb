@@ -1,4 +1,4 @@
-# TG WebGPT Gateway — R6 provider implementation
+# TG WebGPT Gateway — R7 recovery and operations
 
 This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
@@ -21,6 +21,8 @@ R7/R8 are not complete. See
 [R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md),
 [R3 evidence](docs/verification/R3.md), [R4 evidence](docs/verification/R4.md),
 [R5 evidence](docs/verification/R5.md) and [R6 evidence](docs/verification/R6.md).
+R7 adds polling reconnect, explicit UNKNOWN completion, read-only doctor/status and bounded
+durable final-result delivery. See [R7 operational evidence](docs/verification/R7-operations.md).
 
 ## Prerequisites and install
 
@@ -167,6 +169,27 @@ completely before recovery. Never delete or replace the `*-gateway-lock` file to
 the service: process death releases the lock automatically. The original submission
 acknowledgement failure still requires separate diagnosis.
 
+With the bot stopped, run the read-only preflight:
+
+```sh
+bun --env-file=.env run doctor
+```
+
+It prints one JSON report on stdout. `readyToStart` describes the checked prerequisites,
+not a running daemon's `READY` state. Checks cover config, existing SQLite integrity and
+immutable migration history, queue/delivery counts, Telegram `getMe`, the gateway lease
+and provider health. Missing DB/migrations/profile are reported without initializing them.
+When the bot holds the lease, the CLI skips the competing browser probe; use Telegram
+`/doctor` for the owned runtime. Config/native errors expose fixed fields/codes, not values,
+paths, tokens or browser credentials. Doctor never polls Telegram updates, creates a chat,
+sends a prompt, uploads a file, reconciles requests or applies migrations.
+
+Telegram `/status` shows component readiness, queue counts and the caller's request IDs;
+`/doctor` adds capabilities and diagnostic details. An UNKNOWN explains how to inspect the
+exact finished ChatGPT response and perform the offline recovery above. Other users'
+request identifiers and aliases are not exposed. A failed database read reports `ERROR`
+instead of a fabricated empty queue.
+
 All standard verification is offline. To run the separate real-Chromium/synthetic-site
 profile, set `TGWEBGPT_TEST_BROWSER` to an installed Chromium executable and run
 `bun run test:browser`. Every URL is intercepted; no live ChatGPT account is used.
@@ -212,15 +235,18 @@ empty result). An explicit 429 `retry_after` is a minimum wait, up to 60 seconds
 or invalid delay stops the runtime without an early retry. Reconnection preserves the
 handled offset. Transport is non-ready at startup and during reconnection until a poll
 succeeds. Token errors, poller/webhook conflicts, malformed successful responses,
-unclassified failures and exhausted retries remain fatal. Initial `getMe`, update handlers
-and reply delivery do
-not gain automatic retries. See [R7 polling evidence](docs/verification/R7.md).
+unclassified failures and exhausted retries remain fatal. Initial `getMe` uses its own bounded
+read-only retry before any database/provider initialization: the same five waits and safe
+60-second flood-control limit. Initialization happens only once after identity succeeds.
+Caller abort interrupts identity HTTP/backoff. Later reconnect does not repeat `getMe` or
+application effects. Final-result delivery has its separate durable policy below. See
+[R7 polling evidence](docs/verification/R7.md) and [current operations](docs/verification/R7-operations.md).
 Polling acknowledges an update after handling it. Durable markers suppress redelivery
 after a lost polling offset. Commands are marked before effects, so interrupted commands
 are not automatically replayed; command crash reconciliation is not implemented.
 
 Available commands are `/start`, `/help`, `/new [alias]`, `/add <alias> <url-or-id>`,
-`/chats`, `/use <alias>`, `/current`, `/rename <old> <new>`, `/remove <alias>`, `/status`,
+`/chats`, `/use <alias>`, `/current`, `/rename <old> <new>`, `/remove <alias>`, `/status`, `/doctor`,
 `/stop`, `/send` and `/discard`. New aliases are case-sensitive, 1–64 UTF-16 units, without whitespace or
 control/format characters. The provider verifies `/add` and supplies the opaque canonical
 ID; the transport never derives it from the supplied URL. Ordinary text is preserved
@@ -255,9 +281,28 @@ Progress delivery cannot delay provider observation. Completed responses preserv
 source text, escape arbitrary HTML and use balanced `<pre>` blocks for fenced code.
 Other Markdown remains literal. Chunks respect the 4096 character limit conservatively
 using UTF-16 units and do not split surrogate pairs. Only an explicit HTTP 400,
-`ok=false`, parser rejection retries that chunk once as plain text. Network errors, rate limits and other
-delivery failures do not retry or call the provider again. Delivery failures remain
-in-memory diagnostics and are shown for their owner by `/status`; durable retry is R7.
+`ok=false`, parser rejection retries that chunk once as plain text.
+
+R7 stores new terminal results atomically with provider settlement in forward migration
+`0007_request_deliveries.sql`. A crash before Telegram delivery leaves the output available
+for restart. The delivery worker has no provider API: it only sends the stored result to
+the original, still-authorized user/message. Its stable render plan and confirmed-part
+cursor survive restart. Under the explicitly approved policy, an ambiguously delivered
+part may repeat; confirmed earlier parts do not. A completed provider request is never
+submitted again for delivery recovery.
+
+There are at most six attempts, with 1/2/4/8/16-second retry waits. A valid `retry_after`
+is a minimum, up to the 60-second policy limit. Missing/invalid/longer minima and permanent
+errors stop retries instead of sending early. The budget survives restart. Progress and
+command notices keep their original one-attempt behavior. Shutdown aborts and joins owned
+delivery work before closing storage and releasing the gateway lease.
+
+Result/plan content is deleted after delivery or expires 24 hours after settlement. The
+running sweep and next startup perform expiry cleanup, and expired content is never sent.
+The error remains visible as `TELEGRAM_DELIVERY_EXPIRED` in `/status`/`/doctor`. No process
+can physically clean a stopped database; WAL/backups retain the same deletion limitations
+as R2 input. Previously completed rows without saved output cannot be recovered by this
+upgrade. Durable delivery state and failures remain distinguishable from provider completion.
 
 Database maintenance needs no Telegram credentials:
 
@@ -276,6 +321,15 @@ that survives payload loss and backfills existing R2 inputs. A database at 0003 
 forward too. See [migration rules](src/persistence/sqlite/migrations/README.md).
 The connection enables foreign keys, WAL, FULL synchronous durability, a 5000 ms
 busy timeout and strict parameter binding.
+
+Before an upgrade or manual maintenance, stop every bot version using the database and
+make a consistent SQLite backup in an ignored, private directory. Use SQLite's backup
+facility or Bun `Database.serialize()` on a read connection while holding the gateway
+lease; write the resulting image as a new file with mode 0600. Check that the backup
+reopens and `PRAGMA integrity_check` returns `ok` before running `db:migrate`. Copying only
+the main file while committed changes remain in WAL is not a consistent backup. Keep the
+previous backup until the forward migration and restart checks pass. Never edit an applied
+migration or delete the lease file to bypass a running process.
 
 Data defaults to `data/`, which is ignored by Git. SQLite may retain `-wal` and
 `-shm` sidecars; these are ignored too. Browser profile and attachment directories
@@ -302,9 +356,8 @@ bun run verify
 `format` explicitly writes formatting changes. `verify` does not change source files.
 Biome checks TypeScript/JSON; Markdown, TOML and SQL are outside its formatter scope.
 
-R4 includes no real browser integration or doctor/status CLI. Compatibility
-with arbitrary existing ChatGPT conversations remains unproven and must be resolved
-before real provider integration.
+The R4-only evidence predates the R6 provider and R7 doctor described above. Compatibility
+with arbitrary existing ChatGPT conversations still requires opt-in live acceptance.
 
 ## R1 persistence contracts
 
@@ -398,7 +451,8 @@ read-only inspection, accepts correlated terminal evidence and otherwise records
 There is no automatic retry, replay from UNKNOWN or resumption of interrupted observation.
 Incomplete created/queued input remains blocked. Terminal settlement uses unchanged R2
 retention; migrations 0001–0004 are unchanged. Callback delivery diagnostics are currently
-in-memory; durable delivery recovery and manual UNKNOWN resolution remain R7 work.
+in-memory in isolated callback-only tests. The R7 runtime supplies atomic result persistence,
+durable delivery recovery and the explicit UNKNOWN resolution described above.
 
 The provider port passes only generated attachment storage keys and display metadata.
 R5 will resolve/download real files, and R6 will implement the actual browser adapter.

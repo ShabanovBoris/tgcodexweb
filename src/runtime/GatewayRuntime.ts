@@ -11,6 +11,7 @@ import { SqliteAttachmentBatchRepository } from "../persistence/sqlite/SqliteAtt
 import { SqliteConversationRepository } from "../persistence/sqlite/SqliteConversationRepository";
 import { SqliteRequestQueueRepository } from "../persistence/sqlite/SqliteRequestQueueRepository";
 import { SqliteRequestRepository } from "../persistence/sqlite/SqliteRequestRepository";
+import { SqliteRequestResultRepository } from "../persistence/sqlite/SqliteRequestResultRepository";
 import { SqliteUpdateDedupRepository } from "../persistence/sqlite/SqliteUpdateDedupRepository";
 import type { AttachmentStore } from "../ports/AttachmentStore";
 import type { ChatProvider } from "../ports/ChatProvider";
@@ -55,6 +56,21 @@ export async function runGateway(
   let bot: TelegramBot | undefined;
   let cleanupTimer: ReturnType<typeof setInterval> | undefined;
   let cleanupTask: Promise<void> | undefined;
+  let deliveryTimer: ReturnType<typeof setInterval> | undefined;
+  let deliveryTask: Promise<void> | undefined;
+  const retryDeliveries = () => {
+    if (deliveryTask) return deliveryTask;
+    deliveryTask = (async () => {
+      try {
+        await bot?.retryResults(input.signal);
+      } catch {
+        log("warn", { operation: "telegram.delivery_retry_failed", errorCode: "DATABASE_ERROR" });
+      }
+    })().finally(() => {
+      deliveryTask = undefined;
+    });
+    return deliveryTask;
+  };
   const allowed = new Set(input.config.telegram.allowedUserIds);
   const now = () => new Date().toISOString();
   const runner = new TelegramPolling({
@@ -66,6 +82,8 @@ export async function runGateway(
       migrateDatabase(database);
       const mappings = new SqliteConversationRepository(database);
       const requests = new SqliteRequestRepository(database);
+      const results = new SqliteRequestResultRepository(database);
+      results.expire(now());
       const queue = new SqliteRequestQueueRepository(database);
       const updates = new SqliteUpdateDedupRepository(database);
       const batches = new SqliteAttachmentBatchRepository(database);
@@ -109,6 +127,8 @@ export async function runGateway(
       service = new RequestService({
         queueRepository: queue,
         requests,
+        results,
+        log,
         provider,
         attachments,
         options: {
@@ -133,6 +153,7 @@ export async function runGateway(
         mappings,
         requests: service,
         requestRepository: requests,
+        results,
         queueRepository: queue,
         updates,
         transportReady: () => runner.ready(),
@@ -140,6 +161,7 @@ export async function runGateway(
         now,
         newRequestId: () => crypto.randomUUID(),
         log,
+        signal: input.signal,
         files: new TelegramFileCollector({
           service: attachments,
           batches,
@@ -152,12 +174,19 @@ export async function runGateway(
         }),
       });
       await service.start();
+      void retryDeliveries();
+      if (!input.signal.aborted)
+        deliveryTimer = setInterval(() => {
+          void retryDeliveries();
+        }, 1000);
       log("info", { operation: "gateway.started" });
     },
     handle: (update) => (bot as TelegramBot).handle(update),
     shutdown: async () => {
       clearInterval(cleanupTimer);
+      clearInterval(deliveryTimer);
       await service?.shutdown();
+      await deliveryTask;
       await cleanupTask;
     },
   });
@@ -165,8 +194,10 @@ export async function runGateway(
     await runner.run(input.signal);
   } finally {
     clearInterval(cleanupTimer);
+    clearInterval(deliveryTimer);
     try {
       await cleanupTask;
+      await deliveryTask;
       database?.close(true);
     } finally {
       try {

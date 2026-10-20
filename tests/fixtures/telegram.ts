@@ -4,6 +4,8 @@ import { RequestService } from "../../src/application/RequestService";
 import { createLogger } from "../../src/logging/logger";
 import { SqliteAttachmentBatchRepository } from "../../src/persistence/sqlite/SqliteAttachmentBatchRepository";
 import { FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
+import type { RequestResultRepository } from "../../src/ports/RequestResultRepository";
+import type { ResultDeliveryRepository } from "../../src/ports/ResultDeliveryRepository";
 import type {
   TelegramApi,
   TelegramSend,
@@ -49,6 +51,11 @@ export function setupTelegram(
   provider = new FakeChatProvider(),
   allowedUserIds = ["123", "456"],
   attachments?: AttachmentService,
+  delivery?: Readonly<{
+    results: RequestResultRepository & ResultDeliveryRepository;
+    now?: () => string;
+    signal?: AbortSignal;
+  }>,
 ) {
   const api = new FakeTelegramApi();
   const logs: string[] = [];
@@ -56,20 +63,22 @@ export function setupTelegram(
     conversationId = 0;
   let ready = true;
   let bot: TelegramBot;
+  const now = delivery?.now ?? (() => later);
   const requests = new RequestService({
     queueRepository: f.store,
     requests: f.requests,
+    results: delivery?.results,
     provider,
     attachments,
     options: { maxPendingPerConversation: 3, generationTimeoutMs: 600000 },
-    now: () => later,
+    now,
     onResult: (result) => bot.result(result),
     onProgress: (request) => bot.progress(request),
   });
   const conversations = new ConversationService(
     f.conversations,
     provider,
-    () => later,
+    now,
     () => `new-${++conversationId}`,
   );
   bot = new TelegramBot({
@@ -86,11 +95,13 @@ export function setupTelegram(
     mappings: f.conversations,
     requests,
     requestRepository: f.requests,
+    results: delivery?.results,
     queueRepository: f.store,
     updates: f.updates,
     transportReady: () => ready,
     providerLabel: "Fake",
-    now: () => later,
+    now,
+    signal: delivery?.signal,
     newRequestId: () => `r${++id}`,
     log: createLogger({ sink: (line) => logs.push(line) }),
     files: attachments

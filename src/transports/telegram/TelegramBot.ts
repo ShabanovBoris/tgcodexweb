@@ -9,11 +9,13 @@ import { ProviderOperationError } from "../../ports/ChatProvider";
 import type { ConversationRepository } from "../../ports/ConversationRepository";
 import type { RequestQueueRepository } from "../../ports/RequestQueueRepository";
 import type { RequestRepository } from "../../ports/RequestRepository";
+import type { ResultDeliveryRepository } from "../../ports/ResultDeliveryRepository";
 import type { UpdateDedupRepository } from "../../ports/UpdateDedupRepository";
 import { type TelegramApi, TelegramError, type TelegramUpdate } from "./TelegramApi";
-import { parseTelegramCommand, telegramHelp } from "./TelegramCommands";
+import { parseTelegramCommand, telegramHelp, unknownRecoveryNotice } from "./TelegramCommands";
 import type { TelegramFileCollector } from "./TelegramFileCollector";
 import { renderTelegram } from "./TelegramRenderer";
+import { TelegramResultDelivery, requestResultText } from "./TelegramResultDelivery";
 
 type Message = NonNullable<TelegramUpdate["message"]>;
 type Destination = Readonly<{ chatId: string; replyTo?: string }>;
@@ -27,6 +29,7 @@ type Dependencies = Readonly<{
   mappings: ConversationRepository;
   requests: RequestService;
   requestRepository: RequestRepository;
+  results?: ResultDeliveryRepository;
   queueRepository: RequestQueueRepository;
   updates: UpdateDedupRepository;
   transportReady: () => boolean;
@@ -34,6 +37,7 @@ type Dependencies = Readonly<{
   now: () => string;
   newRequestId: () => string;
   log: ReturnType<typeof createLogger>;
+  signal?: AbortSignal;
   files?: TelegramFileCollector;
 }>;
 
@@ -42,9 +46,19 @@ export class TelegramBot {
   private ingress: Promise<void> = Promise.resolve();
   private readonly progressGates = new Map<string, Promise<void>>();
   private readonly progressDeliveries = new Map<string, Promise<void>>();
+  private readonly resultTasks = new Map<string, Promise<void>>();
+  private readonly resultDelivery?: TelegramResultDelivery;
 
   constructor(private readonly dependencies: Dependencies) {
     this.allowed = new Set(dependencies.allowedUserIds);
+    if (dependencies.results)
+      this.resultDelivery = new TelegramResultDelivery({
+        repository: dependencies.results,
+        api: dependencies.api,
+        destination: (request) => this.resultDestination(request),
+        now: dependencies.now,
+        signal: dependencies.signal,
+      });
   }
 
   // Serial ingress preserves command/selection and accepted update order, without waiting for generation.
@@ -234,7 +248,34 @@ export class TelegramBot {
     return delivery;
   }
 
-  async result(result: RequestResult): Promise<void> {
+  result(result: RequestResult): Promise<void> {
+    const existing = this.resultTasks.get(result.request.id);
+    if (existing) return existing;
+    const delivery = this.deliverResult(result).finally(() => {
+      this.resultTasks.delete(result.request.id);
+    });
+    this.resultTasks.set(result.request.id, delivery);
+    return delivery;
+  }
+
+  async retryResults(signal?: AbortSignal): Promise<void> {
+    const results = this.dependencies.results;
+    if (!results) return;
+    results.expire(this.dependencies.now());
+    for (const id of results.due(this.dependencies.now())) {
+      if (signal?.aborted) break;
+      const request = this.dependencies.requestRepository.get(id);
+      if (request) {
+        try {
+          await this.result({ request });
+        } catch {
+          if (signal?.aborted) break;
+        }
+      }
+    }
+  }
+
+  private async deliverResult(result: RequestResult): Promise<void> {
     const request = result.request;
     try {
       await this.progressGates.get(request.id);
@@ -243,14 +284,13 @@ export class TelegramBot {
       } catch {
         /* Final delivery remains independent of progress failure. */
       }
-      const destination = this.resultDestination(request);
-      if (!destination) throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
-      const text =
-        result.message?.text ||
-        (request.state === "completed"
-          ? `Завершено: пустой ответ [${request.id}]`
-          : `Запрос [${request.id}]: ${request.state}${result.errorCode ? ` · ${result.errorCode}` : ""}${request.state === "unknown" ? "\nИсход не подтверждён; автоматической повторной отправки нет." : ""}`);
-      await this.send(destination, text, true);
+      if (this.resultDelivery) {
+        if (!(await this.resultDelivery.deliver(request.id))) return;
+      } else {
+        const destination = this.resultDestination(request);
+        if (!destination) throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
+        await this.send(destination, requestResultText(result), true);
+      }
       this.dependencies.log("info", {
         operation: "telegram.delivered",
         telegramUpdateId: request.telegramUpdateId,
@@ -267,6 +307,7 @@ export class TelegramBot {
         requestState: request.state,
         errorCode: "TELEGRAM_DELIVERY_FAILED",
       });
+      this.dependencies.signal?.throwIfAborted();
       throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
     } finally {
       this.progressGates.delete(request.id);
@@ -333,6 +374,9 @@ export class TelegramBot {
       case "status":
         response = await this.status(userId);
         break;
+      case "doctor":
+        response = await this.status(userId, true);
+        break;
       case "stop": {
         const result = this.dependencies.requests.stop(
           service.current(userId).providerConversationId,
@@ -355,40 +399,86 @@ export class TelegramBot {
     await this.notice(destination, response);
   }
 
-  private async status(userId: string): Promise<string> {
+  private async status(userId: string, detailed = false): Promise<string> {
     const health = await this.dependencies.requests.health();
     const queue = this.dependencies.requests.status();
+    const transport = this.dependencies.transportReady() ? "ready" : "unavailable";
     const state =
-      !this.dependencies.transportReady() || queue.phase !== "running"
-        ? "DEGRADED"
+      queue.phase === "error"
+        ? "ERROR"
         : health.state === "auth_required"
           ? "AUTH_REQUIRED"
-          : health.state === "ready"
-            ? "READY"
-            : "PROVIDER_UNAVAILABLE";
-    const snapshot = this.dependencies.queueRepository.snapshot();
-    const ids = new Set([
-      ...snapshot.queued.map((work) => work.request.id),
-      ...snapshot.blocked.map((block) => block.requestId),
-    ]);
-    const unfinished = [...ids]
-      .map((id) => this.dependencies.requestRepository.get(id))
-      .filter(
-        (request): request is Request =>
-          !!request &&
-          this.dependencies.mappings.get(request.conversationId)?.telegramUserId === userId,
-      );
-    const failures = queue.deliveryFailures.filter((id) => {
-      const request = this.dependencies.requestRepository.get(id);
-      return (
-        request && this.dependencies.mappings.get(request.conversationId)?.telegramUserId === userId
-      );
-    });
-    const degraded =
-      state === "READY" &&
-      (queue.executionFailures.length > 0 ||
-        snapshot.blocked.some((block) => !queue.activeRequestIds.includes(block.requestId)));
-    return `${this.dependencies.providerLabel} · ${degraded ? "DEGRADED" : state}\n${unfinished.map((request) => `[${request.id}] ${request.state}`).join("\n")}${failures.length ? `\nTELEGRAM_DELIVERY_FAILED: ${failures.join(", ")}` : ""}`;
+          : health.state === "unavailable"
+            ? "PROVIDER_UNAVAILABLE"
+            : transport !== "ready" || queue.phase !== "running"
+              ? "DEGRADED"
+              : "READY";
+    try {
+      const snapshot = this.dependencies.queueRepository.snapshot();
+      const active = new Set(queue.activeRequestIds);
+      const blocks = snapshot.blocked.filter((block) => !active.has(block.requestId));
+      const ids = new Set([
+        ...snapshot.queued.map((work) => work.request.id),
+        ...snapshot.blocked.map((block) => block.requestId),
+        ...active,
+      ]);
+      const owned = (id: string): Request | null => {
+        const request = this.dependencies.requestRepository.get(id);
+        return request &&
+          this.dependencies.mappings.get(request.conversationId)?.telegramUserId === userId
+          ? request
+          : null;
+      };
+      const unfinished = [...ids].map(owned).filter((request): request is Request => !!request);
+      const ownIds = new Set(unfinished.map((request) => request.id));
+      const deliveries = this.dependencies.results?.diagnostics();
+      const deliveryFailures = deliveries
+        ? deliveries.filter((entry) => entry.failureCode).map((entry) => entry.requestId)
+        : queue.deliveryFailures;
+      const failures = deliveryFailures.filter((id) => owned(id));
+      const degraded =
+        state === "READY" &&
+        (blocks.length > 0 ||
+          queue.executionFailures.length > 0 ||
+          deliveryFailures.length > 0 ||
+          queue.cleanupFailures.length > 0);
+      const lines = [
+        `${this.dependencies.providerLabel} · ${degraded ? "DEGRADED" : state}`,
+        `Провайдер: ${health.state} · Telegram: ${transport} · БД: ready`,
+        `Очередь: ${queue.phase} · активных: ${queue.activeRequestIds.filter((id) => ownIds.has(id)).length} · ожидают: ${snapshot.queued.filter((work) => ownIds.has(work.request.id)).length} · блокировок: ${blocks.filter((block) => ownIds.has(block.requestId)).length}`,
+        ...unfinished.map((request) => {
+          const block = blocks.find((entry) => entry.requestId === request.id);
+          return `[${request.id}] ${request.state}${block ? ` · ${block.reason}` : ""}`;
+        }),
+      ];
+      if (blocks.length) lines.push("Есть блокировка очереди или общей ёмкости провайдера.");
+      if (failures.length) lines.push(`TELEGRAM_DELIVERY_FAILED: ${failures.join(", ")}`);
+      for (const entry of deliveries ?? []) {
+        if (owned(entry.requestId))
+          lines.push(
+            `[${entry.requestId}] delivery:${entry.state} · попыток: ${entry.attempts}${entry.nextAttemptAt ? ` · повтор: ${entry.nextAttemptAt}` : ""}${entry.failureCode ? ` · ${entry.failureCode}` : ""}`,
+          );
+      }
+      if (queue.errorCode) lines.push(queue.errorCode);
+      if (unfinished.some((request) => request.state === "unknown"))
+        lines.push(unknownRecoveryNotice);
+      if (detailed) {
+        lines.push(`Проверено: ${health.observedAt}`);
+        lines.push(
+          `Параллельных чатов: ${queue.capabilities.maxConcurrentConversations} · остановка: ${queue.capabilities.cancellation ? "поддерживается" : "не поддерживается"} · файлы: ${queue.capabilities.fileUpload ? "поддерживаются" : "не поддерживаются"}`,
+        );
+        for (const [label, entries] of [
+          ["EXECUTION_FAILED", queue.executionFailures],
+          ["ATTACHMENT_CLEANUP_FAILED", queue.cleanupFailures],
+        ] as const) {
+          const visible = entries.filter((id) => owned(id));
+          if (visible.length) lines.push(`${label}: ${visible.join(", ")}`);
+        }
+      }
+      return lines.join("\n");
+    } catch {
+      return `${this.dependencies.providerLabel} · ERROR\nПровайдер: ${health.state} · Telegram: ${transport} · БД: unavailable\nDATABASE_ERROR: состояние очереди недоступно.`;
+    }
   }
 
   private async notice(destination: Destination, text: string): Promise<void> {
