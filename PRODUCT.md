@@ -292,7 +292,8 @@ Local storage owns:
 - accepted request text and attachment references needed for execution;
 - Telegram update deduplication keys;
 - attachment metadata required for processing;
-- health/recovery metadata.
+- health/recovery metadata;
+- operational final output and chunk acknowledgements needed for bounded Telegram delivery.
 
 Accepted input is operational data, not conversation history. The approved R2 retention
 policy (2026-10-01) preserves it throughout non-terminal processing without expiry that
@@ -301,6 +302,14 @@ could invalidate a queued request. A transition to `completed`, `failed`, `cance
 Request identity, lifecycle/submission metadata, dedup markers and historical mapping
 references remain. UNKNOWN never permits automatic replay of the original request.
 This policy applies to newly accepted R2 input; existing R1 metadata is preserved.
+
+The R7 delivery decision (2026-10-20) permits repeating an ambiguously delivered Telegram
+part, so duplicate parts are possible. It never permits another ChatGPT prompt. Terminal
+settlement and saving its operational result are atomic. Confirmed parts are not repeated;
+the final output is removed after successful delivery or expires 24 hours after settlement.
+Expiry cleanup runs while the gateway is running and at its next startup; delivery after
+the deadline is forbidden. Delivery failure/expiry remains visible without retaining content.
+This short-lived output is not a local canonical conversation history.
 
 The browser profile owns:
 

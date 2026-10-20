@@ -24,6 +24,7 @@
     "start:fake": "bun run src/cli/index.ts start:fake",
     "browser:login": "bun run src/cli/index.ts browser:login",
     "provider:health": "bun run src/cli/index.ts provider:health",
+    "doctor": "bun run src/cli/index.ts doctor",
     "test:browser": "bun run scripts/test-browser.ts",
     "test:live": "bun run scripts/verify-live-provider.ts",
     "verify": "bun run scripts/verify.ts"

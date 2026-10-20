@@ -70,6 +70,7 @@ type Operation = {
   markdown: ChatGptMarkdownBuffer;
   outcome?: GatewayObservation;
 };
+type GatewayHealth = "ready" | "auth_required" | "unavailable";
 const remotePattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function gatewayConversationId(url: string): string | undefined {
   try {
@@ -111,6 +112,7 @@ function newUserIdentities(
 export class GatewayBrowserSession {
   private context?: BrowserContext;
   private opening?: Promise<BrowserContext>;
+  private checking?: Promise<GatewayHealth>;
   private probe?: Page;
   private operation?: Operation;
   private closed = false;
@@ -182,23 +184,45 @@ export class GatewayBrowserSession {
     }
   }
 
-  async health(): Promise<"ready" | "auth_required" | "unavailable"> {
+  health(): Promise<GatewayHealth> {
+    if (this.closed) return Promise.resolve("unavailable");
+    // Status and execution may probe concurrently; they share this read-only page lifecycle.
+    if (!this.checking)
+      this.checking = this.checkHealth().finally(() => {
+        this.checking = undefined;
+      });
+    return this.checking;
+  }
+
+  private async checkHealth(): Promise<GatewayHealth> {
+    let state: GatewayHealth = "unavailable";
     try {
       await this.ensureProbePage();
       const probe = this.probe;
-      if (!probe) return "unavailable";
-      await this.authenticate(probe);
-      const composer = probe.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true });
-      return (await withChatGptBrowserObservationTimeout(
-        (async () => (await composer.count()) === 1 && (await composer.isEditable()))(),
-      ))
-        ? "ready"
-        : "unavailable";
+      if (probe) {
+        await this.authenticate(probe);
+        const composer = probe.locator(CHATGPT_COMPOSER_SELECTOR).filter({ visible: true });
+        state = (await withChatGptBrowserObservationTimeout(
+          (async () => (await composer.count()) === 1 && (await composer.isEditable()))(),
+        ))
+          ? "ready"
+          : "unavailable";
+      }
     } catch (error) {
-      return error instanceof GatewayBrowserError && error.code === "auth_required"
-        ? "auth_required"
-        : "unavailable";
+      state =
+        error instanceof GatewayBrowserError && error.code === "auth_required"
+          ? "auth_required"
+          : "unavailable";
     }
+    if (this.closed) state = "unavailable";
+    if (state !== "ready") {
+      // Failed navigation/authentication can leave a live but unusable probe. Only that
+      // read-only page is discarded; the mutation page and ambiguous operation stay owned.
+      const probe = this.probe;
+      this.probe = undefined;
+      await probe?.close().catch(() => {});
+    }
+    return state;
   }
 
   private async surface(remoteId?: string): Promise<Page> {
@@ -391,9 +415,13 @@ export class GatewayBrowserSession {
   async close(): Promise<void> {
     this.closed = true;
     await this.opening?.catch(() => undefined);
-    await this.context?.close();
-    this.context = undefined;
-    this.operation = undefined;
-    this.probe = undefined;
+    try {
+      await this.context?.close();
+    } finally {
+      await this.checking;
+      this.context = undefined;
+      this.operation = undefined;
+      this.probe = undefined;
+    }
   }
 }

@@ -9,6 +9,7 @@ export const telegramHelp = [
   "/rename <old> <new> — переименовать",
   "/remove <alias> — убрать локальную привязку",
   "/status — состояние",
+  "/doctor — подробная диагностика без отправки запросов",
   "/stop — остановить текущую генерацию",
   "/send — отправить собранный альбом одним запросом",
   "/discard — удалить черновик альбома",
@@ -26,10 +27,17 @@ const arities: Record<string, readonly number[]> = {
   rename: [2],
   remove: [1],
   status: [0],
+  doctor: [0],
   stop: [0],
   send: [0],
   discard: [0],
 };
+
+export const unknownRecoveryNotice =
+  "Исход не подтверждён; автоматической повторной отправки нет. Очередь ждёт подтверждения завершения. " +
+  "Не отправляйте этот запрос повторно. Оператору: проверьте завершение именно этого запроса в ChatGPT, " +
+  "остановите бота и выполните recover:unknown <request-id> --confirm-completed. " +
+  "Команда снимает блокировку без повторной отправки и не возвращает прежний ответ. Ожидающие запросы сохранены.";
 export type ParsedCommand =
   | Readonly<{ kind: "text" | "ignored" | "invalid" }>
   | Readonly<{ kind: "command"; name: string; args: string[] }>;

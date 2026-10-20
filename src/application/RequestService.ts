@@ -1,11 +1,11 @@
 import { z } from "zod";
 import type { Attachment } from "../domain/Attachment";
-import { type Request, terminalStates } from "../domain/Request";
+import { type Request, type RequestTransition, terminalStates } from "../domain/Request";
 import type { RequestInput } from "../domain/RequestInput";
+import type { createLogger } from "../logging/logger";
 import { AttachmentError } from "../ports/AttachmentStore";
 import {
   type ChatProvider,
-  type ProviderAssistantMessage,
   type ProviderCancelResult,
   type ProviderHealth,
   type ProviderObservation,
@@ -26,14 +26,11 @@ import type {
   RequestQueueRepository,
 } from "../ports/RequestQueueRepository";
 import type { RequestRepository } from "../ports/RequestRepository";
+import type { RequestResult, RequestResultRepository } from "../ports/RequestResultRepository";
 import { RequestQueue } from "../queue/RequestQueue";
 import type { AttachmentService } from "./AttachmentService";
 
-export type RequestResult = Readonly<{
-  request: Request;
-  message?: ProviderAssistantMessage;
-  errorCode?: string;
-}>;
+export type { RequestResult } from "../ports/RequestResultRepository";
 export type StopResult = Readonly<{
   kind: "nothing_running" | "unsupported" | "requested" | "already_requested";
   requestId?: string;
@@ -41,6 +38,8 @@ export type StopResult = Readonly<{
 type Dependencies = Readonly<{
   queueRepository: RequestQueueRepository;
   requests: RequestRepository;
+  results?: RequestResultRepository;
+  log?: ReturnType<typeof createLogger>;
   provider: ChatProvider;
   options: Readonly<{ maxPendingPerConversation: number; generationTimeoutMs: number }>;
   now: () => string;
@@ -125,6 +124,7 @@ export class RequestService {
   status() {
     return {
       ...this.queue.status(),
+      capabilities: this.capabilities,
       providerHealth: this.providerHealth,
       deliveryFailures: [...this.deliveryFailures],
       cleanupFailures: [...this.cleanupFailures],
@@ -199,6 +199,7 @@ export class RequestService {
           at: this.dependencies.now(),
         });
       let sent: ProviderSendResult;
+      this.trace("provider.send", work.request, "sending");
       try {
         sent = providerSendResultSchema.parse(
           await this.dependencies.provider.send({
@@ -231,6 +232,7 @@ export class RequestService {
         providerRequestId: sent.providerRequestId,
       });
       active.submission = Object.freeze(sent);
+      this.trace("provider.submitted", running, "running");
       active.controller = new AbortController();
       let expired = false;
       const clearDeadline = this.scheduleDeadline(this.options.generationTimeoutMs, () => {
@@ -296,28 +298,65 @@ export class RequestService {
 
   private async failBeforeSend(work: QueueWork, code: string): Promise<void> {
     const current = this.dependencies.requests.get(work.request.id) as Request;
-    const request = this.dependencies.requests.transition(current.id, {
-      state: "failed",
-      at: this.dependencies.now(),
-      failureCode: current.state === "sending" ? "SEND_FAILED_PRE_SUBMIT" : code,
-    });
+    const result = this.finish(
+      current.id,
+      {
+        state: "failed",
+        at: this.dependencies.now(),
+        failureCode: current.state === "sending" ? "SEND_FAILED_PRE_SUBMIT" : code,
+      },
+      { errorCode: code },
+    );
     await this.cleanup(work.request.id, work.input.attachments);
-    await this.deliver({ request, errorCode: code });
+    await this.deliver(result);
   }
 
   private async settle(id: string, evidence: ProviderOutcome): Promise<void> {
     const files = this.dependencies.requests.listAttachments(id);
-    const request = this.dependencies.requests.transition(id, {
-      state: evidence.state,
-      at: this.dependencies.now(),
-      failureCode: evidence.state === "failed" ? evidence.code : undefined,
-    });
+    const result = this.finish(
+      id,
+      {
+        state: evidence.state,
+        at: this.dependencies.now(),
+        failureCode: evidence.state === "failed" ? evidence.code : undefined,
+      },
+      {
+        message: evidence.state === "completed" ? evidence.message : undefined,
+        errorCode: "code" in evidence ? evidence.code : undefined,
+      },
+    );
     await this.cleanup(id, files);
-    await this.deliver({
-      request,
-      message: evidence.state === "completed" ? evidence.message : undefined,
-      errorCode: "code" in evidence ? evidence.code : undefined,
-    });
+    await this.deliver(result);
+  }
+
+  private finish(
+    id: string,
+    transition: RequestTransition,
+    output: Omit<RequestResult, "request">,
+  ): RequestResult {
+    const result = this.dependencies.results
+      ? this.dependencies.results.settle(id, transition, output)
+      : { request: this.dependencies.requests.transition(id, transition), ...output };
+    this.trace("request.settled", result.request, result.request.state);
+    return result;
+  }
+
+  private trace(
+    operation: "provider.send" | "provider.submitted" | "request.settled",
+    request: Request,
+    requestState: string,
+  ): void {
+    try {
+      this.dependencies.log?.("info", {
+        operation,
+        requestId: request.id,
+        telegramUpdateId: request.telegramUpdateId,
+        conversationId: request.conversationId,
+        requestState,
+      });
+    } catch {
+      /* Optional diagnostics cannot replace a durable result or authorize a retry. */
+    }
   }
 
   private async cleanup(requestId: string, files: readonly Attachment[]): Promise<void> {
@@ -370,13 +409,17 @@ export class RequestService {
       }
       if (evidence.state === "not_submitted" && !current.submittedAt) {
         const files = this.dependencies.requests.listAttachments(current.id);
-        const request = this.dependencies.requests.transition(current.id, {
-          state: "failed",
-          at: this.dependencies.now(),
-          failureCode: current.state === "sending" ? "SEND_FAILED_PRE_SUBMIT" : evidence.code,
-        });
+        const result = this.finish(
+          current.id,
+          {
+            state: "failed",
+            at: this.dependencies.now(),
+            failureCode: current.state === "sending" ? "SEND_FAILED_PRE_SUBMIT" : evidence.code,
+          },
+          { errorCode: evidence.code },
+        );
         await this.cleanup(current.id, files);
-        await this.deliver({ request, errorCode: evidence.code });
+        await this.deliver(result);
         continue;
       }
       // Running at restart is not terminal evidence. R3 never resumes/replays an interrupted prompt.

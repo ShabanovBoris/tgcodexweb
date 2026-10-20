@@ -159,7 +159,7 @@
   "additions": [
     {
       "path": "src/adapters/chatgpt-web/gateway-session.ts",
-      "sha256": "92965d4644bdbdb8953b999f3f5bdba5494f9c532bd040188d545af1d7d1a23a"
+      "sha256": "39fd1f06dce1f19a0755ca02ad01a940fb77b8e14de74fe6d0bb900c64ba0101"
     },
     {
       "path": "launcher/electron/chatgpt-auth-session.d.cts",

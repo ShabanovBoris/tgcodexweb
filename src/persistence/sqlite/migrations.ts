@@ -118,6 +118,40 @@ function readMigrations(directory: string): Migration[] {
   return migrations;
 }
 
+function checkedAppliedCount(database: Database, migrations: readonly Migration[]): number {
+  const applied = database
+    .query<AppliedMigration, []>(
+      "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
+    )
+    .all();
+  for (const [index, row] of applied.entries()) {
+    const file = migrations[index];
+    if (
+      !file ||
+      row.version !== file.version ||
+      row.name !== file.name ||
+      row.checksum !== file.checksum
+    )
+      throw new DatabaseError("migration_history_changed");
+  }
+  return applied.length;
+}
+
+// Diagnostics checks the same immutable history without creating the ledger or applying SQL.
+export function inspectMigrations(database: Database, directory = productionDirectory) {
+  try {
+    const migrations = readMigrations(directory);
+    const ledger = database
+      .query("SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_migrations'")
+      .get();
+    const applied = ledger ? checkedAppliedCount(database, migrations) : 0;
+    return { applied, pending: migrations.length - applied };
+  } catch (cause) {
+    if (cause instanceof DatabaseError) throw cause;
+    throw new DatabaseError("repository_failed", cause);
+  }
+}
+
 // Schema и ledger изменяются атомарно: после сбоя нельзя считать частичный upgrade завершённым.
 // Applied history обязан оставаться prefix файлов; исправления добавляются только новой migration.
 export function migrateDatabase(database: Database, directory = productionDirectory): number {
@@ -131,23 +165,7 @@ export function migrateDatabase(database: Database, directory = productionDirect
         checksum TEXT NOT NULL,
         applied_at TEXT NOT NULL
       )`);
-        const applied = database
-          .query<AppliedMigration, []>(
-            "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
-          )
-          .all();
-        for (const [index, row] of applied.entries()) {
-          const file = migrations[index];
-          if (
-            !file ||
-            row.version !== file.version ||
-            row.name !== file.name ||
-            row.checksum !== file.checksum
-          ) {
-            throw new DatabaseError("migration_history_changed");
-          }
-        }
-        const pending = migrations.slice(applied.length);
+        const pending = migrations.slice(checkedAppliedCount(database, migrations));
         for (const migration of pending) {
           database.run(migration.sql);
           database

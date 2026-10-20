@@ -13,6 +13,7 @@ import { ProviderOperationError } from "../ports/ChatProvider";
 import { DatabaseError, openDatabase } from "../persistence/sqlite/Database";
 import { migrateDatabase } from "../persistence/sqlite/migrations";
 import { TelegramError } from "../transports/telegram/TelegramApi";
+import { doctor } from "../runtime/Doctor";
 
 // CLI владеет exit code и safe receipt; raw exceptions не пересекают пользовательскую границу.
 export async function runCli(
@@ -46,6 +47,11 @@ export async function runCli(
       return 1;
     }
     switch (args[0]) {
+      case "doctor": {
+        const report = await doctor(env, cwd);
+        process.stdout.write(`${JSON.stringify(report)}\n`);
+        return report.readyToStart ? 0 : 1;
+      }
       case "recover:unknown": {
         const resolution = recoverUnknown(env, args[1], cwd);
         log("info", {

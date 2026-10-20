@@ -33,11 +33,12 @@ export type TelegramSend = Readonly<{
 }>;
 export type TelegramIdentity = Readonly<{ id: number; username: string }>;
 export type TelegramFetch = (url: string, input: RequestInit) => Promise<Response>;
+type TelegramMethod = "getMe" | "getUpdates" | "sendMessage" | "getFile";
 
 export interface TelegramApi {
-  getMe(): Promise<TelegramIdentity>;
+  getMe(signal?: AbortSignal): Promise<TelegramIdentity>;
   getUpdates(offset: number | undefined, signal: AbortSignal): Promise<TelegramUpdate[]>;
-  sendMessage(input: TelegramSend): Promise<void>;
+  sendMessage(input: TelegramSend, signal?: AbortSignal): Promise<void>;
   downloadFile(fileId: string, maxBytes: number, signal?: AbortSignal): AsyncIterable<Uint8Array>;
 }
 
@@ -51,10 +52,26 @@ export class TelegramError extends Error {
       | "TELEGRAM_DELIVERY_FAILED",
     // Only getUpdates may supply this hint. It never authorizes replay of a handled update.
     readonly pollingRetryAfterMs?: number,
+    // Only sendMessage supplies this separately from polling. Delivery may duplicate an ambiguous part.
+    readonly deliveryRetryAfterMs?: number,
+    readonly identityRetryAfterMs?: number,
   ) {
     super(code);
     this.name = "TelegramError";
   }
+}
+
+function retryError(
+  method: TelegramMethod,
+  code: TelegramError["code"],
+  minimum?: number,
+): TelegramError {
+  return new TelegramError(
+    code,
+    method === "getUpdates" ? minimum : undefined,
+    method === "sendMessage" ? minimum : undefined,
+    method === "getMe" ? minimum : undefined,
+  );
 }
 
 const envelope = z.object({
@@ -89,8 +106,8 @@ export class HttpTelegramApi implements TelegramApi {
     if (!/^[0-9]+:[A-Za-z0-9_-]+$/.test(token)) throw new TelegramError("TELEGRAM_TOKEN_INVALID");
   }
 
-  async getMe(): Promise<TelegramIdentity> {
-    const result = await this.call("getMe", {});
+  async getMe(signal?: AbortSignal): Promise<TelegramIdentity> {
+    const result = await this.call("getMe", {}, signal);
     const parsed = sender
       .extend({ is_bot: z.literal(true), username: z.string().min(1) })
       .safeParse(result);
@@ -109,18 +126,22 @@ export class HttpTelegramApi implements TelegramApi {
     return parsed.data;
   }
 
-  async sendMessage(input: TelegramSend): Promise<void> {
-    const result = await this.call("sendMessage", {
-      chat_id: input.chatId,
-      text: input.text,
-      parse_mode: input.parseMode,
-      reply_parameters: input.replyTo
-        ? { message_id: Number(input.replyTo), allow_sending_without_reply: true }
-        : undefined,
-      link_preview_options: { is_disabled: true },
-    });
+  async sendMessage(input: TelegramSend, signal?: AbortSignal): Promise<void> {
+    const result = await this.call(
+      "sendMessage",
+      {
+        chat_id: input.chatId,
+        text: input.text,
+        parse_mode: input.parseMode,
+        reply_parameters: input.replyTo
+          ? { message_id: Number(input.replyTo), allow_sending_without_reply: true }
+          : undefined,
+        link_preview_options: { is_disabled: true },
+      },
+      signal,
+    );
     if (!z.object({ message_id: integer.positive() }).safeParse(result).success)
-      throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
+      throw new TelegramError("TELEGRAM_DELIVERY_FAILED", undefined, 0);
   }
 
   async *downloadFile(
@@ -179,11 +200,7 @@ export class HttpTelegramApi implements TelegramApi {
     }
   }
 
-  private async call(
-    method: "getMe" | "getUpdates" | "sendMessage" | "getFile",
-    body: object,
-    signal?: AbortSignal,
-  ): Promise<unknown> {
+  private async call(method: TelegramMethod, body: object, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
     const deadline = AbortSignal.timeout(method === "getUpdates" ? 35000 : 15000);
     const requestSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
@@ -197,25 +214,27 @@ export class HttpTelegramApi implements TelegramApi {
         redirect: "error",
         signal: requestSignal,
       });
-      if (method === "getUpdates") {
-        if (response.status === 401) throw new TelegramError("TELEGRAM_TOKEN_INVALID");
+      if (method !== "getFile") {
+        if (response.status === 401 || (method === "getMe" && response.status === 404))
+          throw new TelegramError("TELEGRAM_TOKEN_INVALID");
         if (response.status === 409) throw new TelegramError("TELEGRAM_CONFLICT");
       }
       const serverFailure = response.status >= 500 && response.status <= 599;
       const parsed = envelope.safeParse(
         await response.json().catch((error: unknown) => {
           // A known 5xx stays transient even when its body cannot be read or decoded.
-          if (method === "getUpdates" && serverFailure) return undefined;
+          if (method !== "getFile" && serverFailure) return undefined;
           // An unreadable 429 cannot authorize a retry before an unknown retry_after.
-          if (method === "getUpdates" && !response.ok && !serverFailure)
+          if (method !== "getFile" && !response.ok && !serverFailure)
             throw new TelegramError(failureCode);
           throw error;
         }),
       );
       if (!parsed.success)
-        throw new TelegramError(
+        throw retryError(
+          method,
           failureCode,
-          method === "getUpdates" && serverFailure ? 0 : undefined,
+          serverFailure || (method === "sendMessage" && response.ok) ? 0 : undefined,
         );
       const data = parsed.data;
       if (!data.ok || !response.ok) {
@@ -225,12 +244,13 @@ export class HttpTelegramApi implements TelegramApi {
           (method === "getMe" && data.error_code === 404)
         )
           throw new TelegramError("TELEGRAM_TOKEN_INVALID");
-        if (method === "getUpdates") {
+        if (method !== "getFile") {
           if (response.status === 409 || data.error_code === 409)
             throw new TelegramError("TELEGRAM_CONFLICT");
           if (!data.ok && response.status === 429 && data.error_code === 429) {
             const parameters = floodControl.safeParse(data.parameters);
-            throw new TelegramError(
+            throw retryError(
+              method,
               failureCode,
               parameters.success ? parameters.data.retry_after * 1000 : undefined,
             );
@@ -240,7 +260,7 @@ export class HttpTelegramApi implements TelegramApi {
             serverFailure &&
             (data.error_code === undefined || (data.error_code >= 500 && data.error_code <= 599))
           )
-            throw new TelegramError(failureCode, 0);
+            throw retryError(method, failureCode, 0);
         }
         // Only an explicit parser rejection proves that a rich message was not sent.
         if (
@@ -264,7 +284,7 @@ export class HttpTelegramApi implements TelegramApi {
           "code" in error &&
           typeof error.code === "string" &&
           transientNetworkCodes.has(error.code));
-      throw new TelegramError(failureCode, method === "getUpdates" && transient ? 0 : undefined);
+      throw retryError(method, failureCode, transient || method === "sendMessage" ? 0 : undefined);
     }
   }
 }

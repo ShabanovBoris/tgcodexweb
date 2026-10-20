@@ -326,7 +326,7 @@ describe("R2 durable acceptance", () => {
         schema,
       );
       expect(db.query("SELECT * FROM schema_migrations ORDER BY version").all()).toEqual(ledger);
-      expect(migrateDatabase(db)).toBe(3);
+      expect(migrateDatabase(db)).toBe(4);
       expect(names.map((name) => db.query(`SELECT * FROM ${name}`).all())).toEqual(rows);
       expect(
         db.query("SELECT * FROM schema_migrations WHERE version<=3 ORDER BY version").all(),
@@ -492,7 +492,7 @@ describe("R2 durable acceptance", () => {
         expect(
           db.query("SELECT name FROM sqlite_master WHERE name='request_inputs'").all(),
         ).toEqual([]);
-        expect(migrateDatabase(db)).toBe(6 - version);
+        expect(migrateDatabase(db)).toBe(7 - version);
         expect(names.map((name) => db.query(`SELECT * FROM ${name}`).all())).toEqual(rows);
         expect(
           db

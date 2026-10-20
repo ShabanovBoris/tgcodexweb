@@ -163,7 +163,7 @@ test("0006 upgrades populated 0005 atomically and preserves previous rows/ledger
         .query("SELECT name FROM sqlite_master WHERE name='request_unknown_resolutions'")
         .all(),
     ).toEqual([]);
-    expect(migrateDatabase(database)).toBe(1);
+    expect(migrateDatabase(database)).toBe(2);
     database.close(true);
     database = openDatabase(path);
     expect(migrateDatabase(database)).toBe(0);

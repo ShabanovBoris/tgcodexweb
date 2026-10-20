@@ -601,8 +601,28 @@ after both calls settle. If neither source has valid terminal evidence, UNKNOWN 
 
 Final result delivery occurs only after durable settlement/retention. Delivery failure is
 reported separately in service diagnostics and cannot resubmit or reclassify completion.
-Those delivery diagnostics are in-memory in R3; durable delivery retries belong to R7.
-R7 operator resolution is described below. Shutdown waits active effects and startup reconciliation.
+R3's optional callback remains available for isolated core tests. The R7 runtime supplies
+`RequestResultRepository`: terminal transition, input cleanup and operational output commit
+in one SQLite transaction. A failed output write rolls back settlement. The separate
+`ResultDeliveryRepository` lets the transport advance delivery without settling provider work.
+
+Forward migration `0007_request_deliveries.sql` stores the result, fixed render plan,
+confirmed chunk cursor, persisted attempt count/backoff, 24-hour expiry and safe delivery
+metadata. Runtime delivery shares the existing process lease, retries pending output after
+restart and rechecks the original destination/allowlist before every part. Concurrent result
+callbacks and the retry worker share one owned attempt per request. Confirmed parts are
+never repeated. A crash after Telegram acceptance but before a local acknowledgement may
+repeat that part under the operator-approved policy; it cannot create a provider prompt.
+
+There are at most six attempts with retry waits of 1/2/4/8/16 seconds, honoring a valid
+`retry_after` minimum up to 60 seconds. Missing/invalid or unsupported flood minima and
+permanent errors fail without an early retry. Budget exhaustion stays durable across restart.
+Output/plan are cleared after delivery, or at expiry during the running sweep/next startup;
+expired data is never sent. Persisted final acknowledgements finalize delivery without
+another HTTP call, including after a crash or exhaustion. Only failure/expiry metadata
+remains. Existing completed rows without an outbox result cannot be reconstructed.
+R7 operator UNKNOWN resolution is described below. Shutdown aborts delivery HTTP, joins
+owned attempts, and only then closes the DB/provider and releases the lease.
 
 ---
 
@@ -654,8 +674,14 @@ without truncation or an early retry. Token errors, poller/webhook conflicts, ma
 success payloads, unknown failures and exhausted retries remain fatal. Startup and
 reconnection are non-ready until a successful poll. Reconnection retains one poller,
 the handled offset, the database and the running provider; it does not reinitialize the
-application. `getMe`, update handlers, delivery, provider
-mutations and UNKNOWN requests gain no replay path. Webhooks are never deleted.
+application. Initial `getMe` has a separate bounded read-only retry before any DB/provider
+initialization: the same five waits and 60-second minimum limit, with a distinct safe
+identity retry hint. Known network errors, own timeout, 5xx and valid flood control may
+retry; invalid tokens, TLS/unclassified failures and malformed success remain fatal.
+Caller cancellation aborts identity HTTP/backoff. Initialization occurs once after success;
+later poll reconnect never repeats identity lookup or application initialization.
+Update handlers, provider mutations and UNKNOWN requests gain no replay path. R7 final-result delivery has its own durable policy above; progress/command
+notices do not gain automatic retries. Webhooks are never deleted.
 Signal shutdown aborts polling/backoff, stops admission and joins active request effects
 before database closure. This slice is not full R7 operational recovery; see
 [verification](docs/verification/R7.md).
@@ -714,8 +740,8 @@ Markdown remains literal. Code blocks stay atomic when they fit. Each chunk has 
 plain representation, uses at most 4096 UTF-16 units and preserves surrogate pairs.
 Only an explicit HTTP 400 / `ok=false` / error-code 400 / `can't parse entities`
 rejection retries the rejected chunk once
-as plain text; successful earlier chunks are not repeated. Other delivery errors are not
-retried. Progress is auxiliary and cannot delay provider evidence/deadlines; final transport
+as plain text; successful earlier chunks are not repeated. Other errors are handled only
+by the R7 durable final-result delivery policy. Progress is auxiliary and cannot delay provider evidence/deadlines; final transport
 delivery joins its progress notifications after durable settlement.
 
 ---
@@ -800,6 +826,11 @@ preserves the original opaque queue key and `/add` converges on it after restart
 
 The R6 gateway capability is one conversation and no confirmed cancellation. Health uses
 the upstream authenticated-session probe and a ready composer, with no prompt/upload.
+Concurrent health checks share one probe. A failed navigation/authentication/composer check
+discards only that read-only page, so the next check can navigate afresh; a closed browser
+context may reopen on a later check. Session close joins the health probe. The mutation
+page, attempted-request identities and any ambiguous operation remain reserved and cannot
+be released by health recovery.
 Completion reuses the upstream logical-turn baseline, DOM extraction, stable final-action
 tracker and Markdown buffer. Interrupted observation returns UNKNOWN without Stop or
 replay; restart has no in-memory correlation. Local browser fixtures do not satisfy live
@@ -845,6 +876,20 @@ type ProviderHealth = {
 `/status` returns concise user-facing state.
 
 `doctor` returns more diagnostics but still redacts secrets.
+
+The CLI doctor is a one-shot preflight, with a JSON report on stdout and a nonzero exit
+when its required probes do not pass. It validates config before effects, opens only an
+existing DB read-only, checks quick/FK integrity and immutable migration history without
+applying SQL, and reports queue/delivery counts without content. Telegram is probed only
+through `getMe`. It acquires the normal gateway lease before provider health, holds it
+through provider disposal, and skips that probe if busy or the profile is not initialized.
+It does not start a queue, reconcile requests, poll updates or clean operational data.
+
+Telegram `/status` and `/doctor` share fresh provider health and a live queue read. Storage
+errors become explicit `ERROR`, rather than an empty queue or a fatal ingress exception.
+Global blocking/capacity can degrade readiness, but identifiers and failure details are
+filtered by the historical request owner's user ID. UNKNOWN guidance requires inspection
+of the exact completed remote request and a stopped bot before offline operator confirmation.
 
 ---
 

@@ -1,5 +1,14 @@
 # Forward migrations
 
+R7 adds `0007_request_deliveries.sql`. It starts empty and cannot recover answers from
+older completed rows. New terminal settlement/input cleanup and result insertion share
+one transaction. The result and stable render plan are operational delivery data, retained
+until delivery or the approved 24-hour expiry. Delivery status, attempt budget, next-part
+cursor and errors survive restart without changing provider lifecycle or dedup. The request
+FK, state/content checks and six-attempt bound are covered on fresh/0006 upgrade databases,
+including failed upgrade rollback and process death. Migrations 0001–0006 remain unchanged.
+Read-only doctor checks the same applied-history verifier but never applies migrations.
+
 R7 adds `0006_unknown_resolutions.sql`, an initially empty table of explicit operator
 confirmations. Its request PK/FK prevents orphan or duplicate resolution identities; the
 fixed resolution value permits no retry instruction. It stores no prompt, answer or

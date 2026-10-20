@@ -175,6 +175,20 @@ The bot must not mark a request `COMPLETED` merely because partial assistant tex
 Given ChatGPT completes successfully but Telegram delivery fails,
 then the request remains distinguishable as provider-completed with delivery failure; the service must not resubmit the prompt to ChatGPT as a retry strategy.
 
+## AC-D05 — Durable final-result delivery
+
+Terminal settlement and saving the operational result commit together. A crash after
+completion but before Telegram delivery must retain that result. Restart retries delivery
+to the original, still-authorized user/message without calling the provider again.
+Confirmed chunks are checkpointed and never repeated. An ambiguously delivered chunk may
+repeat, as explicitly approved on 2026-10-20. Retry budget/backoff survive restart;
+`retry_after` is respected without guessing an unknown minimum or retrying early.
+There are at most six attempts, with retry waits of 1/2/4/8/16 seconds or a larger valid
+server minimum up to 60 seconds. Permanent errors, unsupported minima and exhausted budgets
+remain visible failures. Payload and render plan are deleted after delivery or at the
+24-hour expiry cleanup (running gateway or next startup); expired content is never sent.
+Lifecycle and dedup remain unchanged. Shutdown joins owned attempts before closing storage.
+
 ---
 
 # E. Idempotency and queues
@@ -350,6 +364,14 @@ If ChatGPT authentication is missing, `/status` or doctor output distinguishes `
 ## AC-J04 — Read-only doctor
 
 Running `doctor` must not create a ChatGPT conversation, submit a prompt, upload a file or otherwise mutate user conversations.
+
+The local command returns structured checks for configuration, existing database/schema,
+Telegram `getMe`, gateway lease and provider health. It does not create/migrate an absent
+database or initialize a missing profile. A busy gateway skips the competing browser probe.
+`readyToStart` is a preflight result, not a running daemon's `READY` state. Telegram
+`/doctor` uses the owned runtime and shows only its caller's request identifiers. Database
+read failure is explicit `ERROR`; authentication remains distinguishable during a transport
+outage. `/status` and UNKNOWN notices explain blocking and the approved offline recovery.
 
 ---
 
