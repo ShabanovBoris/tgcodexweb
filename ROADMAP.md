@@ -283,8 +283,9 @@ and deletes operational output after delivery or 24-hour expiry cleanup. See
 Read-only provider probes now recover from failed navigation/closed contexts, coalesce
 concurrent checks and join disposal. Initial `getMe` has bounded, cancellable retries before
 application effects. Automatic correlation/resumption of ambiguous provider work remains
-deferred; UNKNOWN keeps the approved conservative policy. Full R7/R8 acceptance has not
-been declared complete; the new delta still requires independent review and release checks.
+deferred; UNKNOWN keeps the approved conservative policy. The complete acceptance matrix
+and current independent-review/release status are recorded in
+[R8 acceptance](docs/verification/R8-acceptance.md).
 
 ## Failure injection tests
 
@@ -322,6 +323,11 @@ Prove the product rather than add features.
 ## Exit criteria
 
 All mandatory acceptance criteria pass.
+
+The 2026-10-21 execution matrix, sanitized receipts, capability applicability,
+remaining limits and exact independent-review status are recorded in
+[R8 acceptance](docs/verification/R8-acceptance.md). Release/tag operations remain
+subject to separate operator authorization.
 
 ---
 
