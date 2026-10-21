@@ -1,6 +1,6 @@
-# TG WebGPT Gateway — R7 recovery and operations
+# TG WebGPT Gateway
 
-This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
+Standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
 Read order:
 
@@ -16,13 +16,14 @@ and keyed queue, and R3 application-owned provider contract, deterministic fake 
 request lifecycle service. R4 adds conversation commands, Telegram HTTP polling,
 allowlist checks, progress, safe response splitting and delivery fallback. R5 adds bounded file downloads, isolated temporary storage and durable albums with
 explicit `/send` and `/discard`. R6 adds a local fork of the pinned upstream browser worker,
-dedicated persistent profiles and the real provider path; live acceptance remains pending.
-R7/R8 are not complete. See
+dedicated persistent profiles and the real provider path. See
 [R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md),
 [R3 evidence](docs/verification/R3.md), [R4 evidence](docs/verification/R4.md),
 [R5 evidence](docs/verification/R5.md) and [R6 evidence](docs/verification/R6.md).
 R7 adds polling reconnect, explicit UNKNOWN completion, read-only doctor/status and bounded
 durable final-result delivery. See [R7 operational evidence](docs/verification/R7-operations.md).
+The complete criterion matrix, executed checks, bounded live evidence, limitations and
+independent review status are in [R8 acceptance](docs/verification/R8-acceptance.md).
 
 ## Prerequisites and install
 
@@ -202,8 +203,9 @@ TGWEBGPT_LIVE=1 TGWEBGPT_LIVE_SEND=1 bun --env-file=.env run test:live roundtrip
 
 The second command intentionally creates one saved chat and sends one synthetic prompt
 with a synthetic attachment. Receipts contain states and hashes, never credentials or
-full conversation content. A local browser test is not a live acceptance receipt. R6's
-live exit criteria and the overall MVP acceptance pass remain pending.
+full conversation content. A local browser test is not a live acceptance receipt.
+[R8 acceptance](docs/verification/R8-acceptance.md) separates automated checks from the
+historical operator-confirmed live scenarios and records their practical limits.
 
 To explicitly run a development bot against the real Telegram transport and a synthetic
 provider, use your own test bot token and allowlist:

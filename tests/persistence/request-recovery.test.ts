@@ -346,7 +346,7 @@ describe("R3 startup reconciliation", () => {
     await expect(service.shutdown()).rejects.toThrow("DATABASE_ERROR");
   });
 
-  test.each(["sending", "running"])(
+  test.each(["uploading", "pre_submit", "sending", "running"])(
     "SIGKILL in actual RequestService %s never resubmits during startup",
     async (mode) => {
       const child = Bun.spawn(
@@ -362,13 +362,20 @@ describe("R3 startup reconciliation", () => {
       try {
         const reader = child.stdout.getReader();
         const chunk = await reader.read();
-        expect(new TextDecoder().decode(chunk.value)).toBe("submitted:r1\n");
+        const state = mode === "pre_submit" ? "sending" : mode;
+        const submitted = mode === "sending" || mode === "running";
+        expect(JSON.parse(new TextDecoder().decode(chunk.value))).toEqual({
+          state,
+          sendCalls: submitted ? 1 : 0,
+          submissions: submitted ? 1 : 0,
+        });
         child.kill("SIGKILL");
         await child.exited;
         reader.releaseLock();
         expect(await new Response(child.stderr).text()).toBe("");
         f.reopen();
-        expect(f.requests.get("r1")?.state).toBe(mode);
+        expect(f.requests.get("r1")?.state).toBe(state);
+        expect(f.requests.get("r1")?.submittedAt).toBe(mode === "running" ? later : undefined);
         const { service, provider } = setup();
         await service.start();
         await service.waitForIdle();
@@ -376,6 +383,10 @@ describe("R3 startup reconciliation", () => {
         expect(f.requests.get("r1")?.state).toBe("unknown");
         expect(f.requests.get("next")?.state).toBe("queued");
         expect(f.updates.get("1")?.requestId).toBe("r1");
+        expect(f.requests.listAttachments("r1")).toEqual([]);
+        expect(
+          f.database.query("SELECT * FROM request_inputs WHERE request_id='r1'").all(),
+        ).toEqual([]);
         await service.shutdown();
       } finally {
         child.kill();
