@@ -15,11 +15,26 @@ import { migrateDatabase } from "../persistence/sqlite/migrations";
 import { TelegramError } from "../transports/telegram/TelegramApi";
 import { doctor } from "../runtime/Doctor";
 
+// Restart only classified reads with no server wait. Exhausted flood minima stay stopped, since a new process must not truncate them.
+export function canRestartService(error: unknown): boolean {
+  if (
+    !(error instanceof TelegramError) ||
+    error.code !== "TELEGRAM_UNAVAILABLE" ||
+    error.deliveryRetryAfterMs !== undefined
+  )
+    return false;
+  const hints = [error.pollingRetryAfterMs, error.identityRetryAfterMs].filter(
+    (value) => value !== undefined,
+  );
+  return hints.length === 1 && hints[0] === 0;
+}
+
 // CLI владеет exit code и safe receipt; raw exceptions не пересекают пользовательскую границу.
 export async function runCli(
   args: readonly string[],
   env: Environment,
   cwd = process.cwd(),
+  onFailure?: (restartable: boolean) => void,
 ): Promise<number> {
   const log = createLogger({ knownSecrets: [env.TELEGRAM_BOT_TOKEN?.trim() ?? ""] });
   try {
@@ -167,6 +182,7 @@ export async function runCli(
     } else {
       log("error", { operation: "cli.failed", errorCode: "INTERNAL_ERROR" });
     }
+    onFailure?.(canRestartService(error));
     return 1;
   }
 }

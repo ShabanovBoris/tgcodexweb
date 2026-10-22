@@ -11,6 +11,8 @@ export type LogFields = Readonly<{
   requestState?: string;
   providerState?: string;
   durationMs?: number;
+  processId?: number;
+  exitCode?: number;
   retryAttempt?: number;
   retryDelayMs?: number;
   errorCode?: string;
@@ -28,6 +30,8 @@ const fields = [
   "requestState",
   "providerState",
   "durationMs",
+  "processId",
+  "exitCode",
   "retryAttempt",
   "retryDelayMs",
   "errorCode",

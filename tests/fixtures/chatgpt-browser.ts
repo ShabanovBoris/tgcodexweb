@@ -16,6 +16,10 @@ export class BrowserFixture {
   groupedTurns = false;
   onUpload?: (page: Page) => void;
   autoComplete = false;
+  composerHydrationDelayMs = 0;
+  sendReadyDelayMs = 0;
+  invalidSendAfterInsert = false;
+  persistDraft = false;
   submissions: {
     text: string;
     files: { name: string; mimeType: string; base64: string }[];
@@ -111,12 +115,26 @@ export class BrowserFixture {
       : '<article data-turn-id-container="old-user"><section data-testid="conversation-turn-0" data-turn="user" data-turn-id="old-user">old user</section></article><article data-turn-id-container="old-answer"><section data-testid="conversation-turn-1" data-turn="assistant" data-turn-id="old-answer"><div class="markdown"><p>old answer must never be returned</p></div><button data-testid="copy-turn-action-button">Copy</button></section></article>';
     return `<!doctype html><html><body>
       <main id="history">${existing ? history : ""}</main>
-      <form data-chatgpt-composer><div id="prompt-textarea" data-testid="prompt-textarea" contenteditable="plaintext-only" style="min-height:40px"></div><input type="file" multiple data-testid="upload-photos-input"><div id="uploads"></div><button type="submit" data-testid="send-button">Send</button></form>
+      <form data-chatgpt-composer><div id="prompt-textarea" data-testid="prompt-textarea" ${this.composerHydrationDelayMs ? 'data-composer-markdown role="textbox" contenteditable="true"' : 'contenteditable="plaintext-only"'} style="min-height:40px"></div><input type="file" multiple data-testid="upload-photos-input"><div id="uploads"></div><button type="submit" data-testid="send-button">Send</button></form>
       <script>
       const form=document.querySelector('form'), composer=document.querySelector('#prompt-textarea'), input=document.querySelector('input'), historyRoot=document.querySelector('#history');
       const groupedTurns=${this.groupedTurns};
       // Track browser input events as editor state: innerText adds layout-only newlines to empty blocks.
-      let promptValue=''; composer.addEventListener('input',event=>{promptValue+=event.data??'\\n';});
+      const draftKey='gateway-fixture-draft:'+location.pathname;
+      if(${this.persistDraft}) composer.textContent=localStorage.getItem(draftKey)??'';
+      let hydrated=${this.composerHydrationDelayMs === 0};
+      if(!hydrated){form.querySelector('[data-testid="send-button"]').disabled=true;setTimeout(()=>{composer.textContent='';hydrated=true;form.querySelector('[data-testid="send-button"]').disabled=false;},${this.composerHydrationDelayMs});}
+      let promptValue=''; composer.addEventListener('input',event=>{
+        if(!hydrated)return;
+        promptValue+=event.data??'\\n';
+        if(${this.persistDraft}) localStorage.setItem(draftKey,composer.textContent??'');
+        const send=form.querySelector('[data-testid="send-button"]');
+        if(${this.sendReadyDelayMs}>0){send.disabled=true;setTimeout(()=>{send.disabled=false;},${this.sendReadyDelayMs});}
+        if(${this.invalidSendAfterInsert}){
+          if(composer.textContent&&!form.querySelector('#extra-submit')){const extra=document.createElement('button');extra.id='extra-submit';extra.type='submit';extra.textContent='Ambiguous';form.append(extra);}
+          if(!composer.textContent) form.querySelector('#extra-submit')?.remove();
+        }
+      });
       input.addEventListener('change', async()=>{ const result=await (await fetch('/fixture/upload')).json(); if(result.fail){ window.close(); return; } for(const file of [...input.files].slice(0,result.chipLimit)){ const group=document.createElement('div'); group.setAttribute('role','group'); group.setAttribute('aria-label',file.name); group.textContent=file.name; if(result.nestedSurface){const surface=document.createElement('button');surface.className='composer-attachment-surface';surface.setAttribute('aria-label',file.name);surface.textContent=file.name;group.append(surface);} document.querySelector('#uploads').append(group); } });
       form.addEventListener('submit',async event=>{event.preventDefault(); const files=[]; for(const file of input.files){const bytes=new Uint8Array(await file.arrayBuffer()); files.push({name:file.name,mimeType:file.type,base64:btoa(String.fromCharCode(...bytes))});} const result=await (await fetch('/fixture/submit',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({text:promptValue,files,path:location.pathname})})).json(); if(result.drop){window.close();return;} history.replaceState({},'', '/c/'+result.remote); composer.textContent='';
       historyRoot.insertAdjacentHTML('beforeend',groupedTurns?'<article data-turn-key="new-user">'+(promptValue?'<div data-user-message-bubble>accepted user</div>':'<div role="button" tabindex="0">attachment</div>')+'<div data-content-search-unit-key="new-answer"><section data-conversation-role="assistant"><div class="markdown"><p>partial answer</p></div></section></div></article>':'<article data-turn-id-container="new-user"><section data-testid="conversation-turn-2" data-turn="user" data-turn-id="new-user">accepted user</section></article><article data-turn-id-container="new-answer"><section data-testid="conversation-turn-3" data-turn="assistant" data-turn-id="new-answer"><div class="markdown"><p>partial answer</p></div></section></article>'); const stop=document.createElement('button'); stop.dataset.testid='stop-button'; stop.textContent='Stop'; document.body.append(stop); if(result.autoComplete)setTimeout(()=>window.fixtureFinish(),50); });

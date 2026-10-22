@@ -200,6 +200,18 @@ Recommended additional operator command:
 /doctor
 ```
 
+Post-MVP additions requested on 2026-10-21:
+
+- `/queue` lists the caller's pending requests across their local chats, with IDs and aliases but no prompts.
+- `/clearqueue` removes only pending requests in the selected local mapping.
+- `/clearqueue all` removes pending requests across all of the caller's mappings, including archived ones.
+
+Only `created`/`queued` work without processing/submission metadata is removable. Active
+work and UNKNOWN blocks remain intact. Removal retains lifecycle/dedup metadata as
+`failed / QUEUE_CLEARED`, atomically removes accepted working input and then cleans its
+unreferenced files. It never claims that a remote generation was cancelled. Album drafts
+remain controlled by `/discard`.
+
 Removing a local mapping releases its alias for the same user's later `/new` or `/add`.
 An archived mapping retains its ID and request metadata references; reusing an alias
 does not redirect old requests or delete the old remote conversation.
@@ -311,6 +323,15 @@ Expiry cleanup runs while the gateway is running and at its next startup; delive
 the deadline is forbidden. Delivery failure/expiry remains visible without retaining content.
 This short-lived output is not a local canonical conversation history.
 
+The 2026-10-21 generated-image addition uses the same operational output retention for
+validated PNG/JPEG/WebP bytes: at most four images and 20,000,000 decoded bytes total per
+response. Telegram receives a photo preview when its format/size/dimensions allow, followed
+by the original file labelled `Скачать оригинал`. The original is uploaded without
+re-encoding. An image-only answer can complete using correlated final provider controls
+and stable image evidence. Failed image retrieval is reported separately from known
+generation completion; it never replays the prompt. Signed asset URLs and authentication
+remain inside the provider, and are not delivered or persisted as output.
+
 The browser profile owns:
 
 - ChatGPT authentication state;
@@ -380,7 +401,7 @@ Possible later additions, intentionally not designed into MVP behavior:
 - REST API transport;
 - Android client;
 - multiple ChatGPT browser profiles/accounts;
-- richer image/artifact retrieval;
+- retrieval of other generated files/artifacts;
 - voice input;
 - scheduled tasks;
 - optional agent orchestration.

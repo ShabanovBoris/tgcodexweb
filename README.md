@@ -1,6 +1,6 @@
-# TG WebGPT Gateway — R7 recovery and operations
+# TG WebGPT Gateway
 
-This folder contains the bootstrap specification for a standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
+Standalone Telegram gateway to browser-based ChatGPT via `codex-chatgpt-web` or a compatible provider adapter.
 
 Read order:
 
@@ -16,13 +16,14 @@ and keyed queue, and R3 application-owned provider contract, deterministic fake 
 request lifecycle service. R4 adds conversation commands, Telegram HTTP polling,
 allowlist checks, progress, safe response splitting and delivery fallback. R5 adds bounded file downloads, isolated temporary storage and durable albums with
 explicit `/send` and `/discard`. R6 adds a local fork of the pinned upstream browser worker,
-dedicated persistent profiles and the real provider path; live acceptance remains pending.
-R7/R8 are not complete. See
+dedicated persistent profiles and the real provider path. See
 [R1 evidence](docs/verification/R1.md), [R2 evidence](docs/verification/R2.md),
 [R3 evidence](docs/verification/R3.md), [R4 evidence](docs/verification/R4.md),
 [R5 evidence](docs/verification/R5.md) and [R6 evidence](docs/verification/R6.md).
 R7 adds polling reconnect, explicit UNKNOWN completion, read-only doctor/status and bounded
 durable final-result delivery. See [R7 operational evidence](docs/verification/R7-operations.md).
+The complete criterion matrix, executed checks, bounded live evidence, limitations and
+independent review status are in [R8 acceptance](docs/verification/R8-acceptance.md).
 
 ## Prerequisites and install
 
@@ -202,8 +203,9 @@ TGWEBGPT_LIVE=1 TGWEBGPT_LIVE_SEND=1 bun --env-file=.env run test:live roundtrip
 
 The second command intentionally creates one saved chat and sends one synthetic prompt
 with a synthetic attachment. Receipts contain states and hashes, never credentials or
-full conversation content. A local browser test is not a live acceptance receipt. R6's
-live exit criteria and the overall MVP acceptance pass remain pending.
+full conversation content. A local browser test is not a live acceptance receipt.
+[R8 acceptance](docs/verification/R8-acceptance.md) separates automated checks from the
+historical operator-confirmed live scenarios and records their practical limits.
 
 To explicitly run a development bot against the real Telegram transport and a synthetic
 provider, use your own test bot token and allowlist:
@@ -247,12 +249,19 @@ are not automatically replayed; command crash reconciliation is not implemented.
 
 Available commands are `/start`, `/help`, `/new [alias]`, `/add <alias> <url-or-id>`,
 `/chats`, `/use <alias>`, `/current`, `/rename <old> <new>`, `/remove <alias>`, `/status`, `/doctor`,
-`/stop`, `/send` and `/discard`. New aliases are case-sensitive, 1–64 UTF-16 units, without whitespace or
+`/stop`, `/send`, `/discard`, `/queue` and `/clearqueue [all]`. New aliases are case-sensitive, 1–64 UTF-16 units, without whitespace or
 control/format characters. The provider verifies `/add` and supplies the opaque canonical
 ID; the transport never derives it from the supplied URL. Ordinary text is preserved
 exactly and targets the selected mapping. Telegram reply metadata does not branch the
 provider conversation. Single supported files are submitted immediately with their exact
 optional caption; captions that look like commands remain prompt text.
+
+`/queue` lists your waiting requests across chats, with IDs and aliases but no prompts.
+`/clearqueue` removes waiting work in the current local chat; `/clearqueue all` applies to
+all your local chats. Claimed/active work and UNKNOWN blocks stay intact, including when
+another alias shares their canonical remote key. Removed work retains dedup and lifecycle
+metadata (`failed / QUEUE_CLEARED`), loses its accepted input and is never replayed after
+restart. `/discard` remains the command for an unsent album draft.
 
 Albums wait for `/send` and survive restart as one draft per user. The first file fixes
 the conversation; changing `/use` affects later ordinary text/single files. Files and
@@ -282,6 +291,18 @@ source text, escape arbitrary HTML and use balanced `<pre>` blocks for fenced co
 Other Markdown remains literal. Chunks respect the 4096 character limit conservatively
 using UTF-16 units and do not split surrogate pairs. Only an explicit HTTP 400,
 `ok=false`, parser rejection retries that chunk once as plain text.
+
+Generated PNG/JPEG/WebP images now travel with the completed result, including image-only
+answers. Each image receives a Telegram photo preview when eligible and an original file
+labelled **Скачать оригинал**, uploaded without re-encoding. WebP, oversized or unusually
+shaped photos receive only the original document. Limits are four images and 20,000,000
+decoded bytes total per answer. Downloads use the provider's authenticated browser and
+never expose its signed asset links. Retrieval errors are explicit and do not repeat the
+ChatGPT prompt. The same durable outbox checkpoints text, preview and original parts and
+clears image content on delivery or 24-hour expiry. See
+[image/queue verification](docs/verification/generated-images-and-queue.md).
+Media uploads use fresh HTTP connections on the pinned Bun runtime after live uploads
+stalled on reused connections. Polling and text retain their existing connection pooling.
 
 R7 stores new terminal results atomically with provider settlement in forward migration
 `0007_request_deliveries.sql`. A crash before Telegram delivery leaves the output available
@@ -339,6 +360,17 @@ or imported from another project.
 Logs are JSON lines on stderr with operational metadata, centralized redaction and
 no raw config, environment, exceptions, prompts or responses. Database errors use
 `DATABASE_ERROR`; runtime pin mismatches use `TOOLCHAIN_ERROR`.
+
+## Persistent macOS service
+
+The optional [macOS service procedure](docs/operations/macos-service.md) installs a
+per-user LaunchAgent with a persistent pinned Bun, private logs and automatic process
+recovery for classified transient Telegram read failures or process crashes. It starts
+after GUI login, including login after reboot. Browser binaries must also live outside
+temporary directories. The existing database, profile and conservative UNKNOWN policy
+are used by the normal gateway entry point.
+Executed checks and local installation limits are in the
+[macOS service verification](docs/verification/macos-service.md).
 
 ## Development commands
 

@@ -15,7 +15,11 @@ import { type TelegramApi, TelegramError, type TelegramUpdate } from "./Telegram
 import { parseTelegramCommand, telegramHelp, unknownRecoveryNotice } from "./TelegramCommands";
 import type { TelegramFileCollector } from "./TelegramFileCollector";
 import { renderTelegram } from "./TelegramRenderer";
-import { TelegramResultDelivery, requestResultText } from "./TelegramResultDelivery";
+import {
+  TelegramResultDelivery,
+  requestResultPlan,
+  sendResultPart,
+} from "./TelegramResultDelivery";
 
 type Message = NonNullable<TelegramUpdate["message"]>;
 type Destination = Readonly<{ chatId: string; replyTo?: string }>;
@@ -123,6 +127,13 @@ export class TelegramBot {
       } catch (error) {
         if (!(error instanceof AttachmentError || error instanceof ConversationError)) throw error;
         if (!this.dependencies.updates.get(updateId)) this.markCommand(updateId);
+        this.dependencies.log("warn", {
+          operation: "telegram.attachment_failed",
+          telegramUpdateId: updateId,
+          telegramUserId: userId,
+          errorCode: error.code,
+          reason: error instanceof AttachmentError ? error.reason : undefined,
+        });
         await this.notice(destination, error.code);
       } finally {
         if (collected?.kind === "single")
@@ -287,9 +298,18 @@ export class TelegramBot {
       if (this.resultDelivery) {
         if (!(await this.resultDelivery.deliver(request.id))) return;
       } else {
-        const destination = this.resultDestination(request);
-        if (!destination) throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
-        await this.send(destination, requestResultText(result), true);
+        for (const chunk of requestResultPlan(result))
+          await sendResultPart(
+            this.dependencies.api,
+            chunk,
+            result,
+            () => {
+              const destination = this.resultDestination(request);
+              if (!destination) throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
+              return destination;
+            },
+            this.dependencies.signal,
+          );
       }
       this.dependencies.log("info", {
         operation: "telegram.delivered",
@@ -387,6 +407,22 @@ export class TelegramBot {
           requested: "Остановка запрошена.",
           already_requested: "Остановка уже запрошена.",
         }[result.kind];
+        break;
+      }
+      case "queue":
+        response =
+          this.dependencies.requests
+            .pending(userId)
+            .map(
+              (request) =>
+                `[${request.id}] ${this.dependencies.mappings.get(request.conversationId)?.alias ?? "чат"} · ${request.state}`,
+            )
+            .join("\n") || "Нет ожидающих запросов.";
+        break;
+      case "clearqueue": {
+        const conversationId = args[0] === "all" ? undefined : service.current(userId).id;
+        const count = await this.dependencies.requests.clearPending(userId, conversationId);
+        response = `Убрано ожидающих запросов: ${count}. Активная генерация и UNKNOWN сохранены.`;
         break;
       }
       case "discard":

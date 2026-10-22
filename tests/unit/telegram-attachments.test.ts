@@ -9,7 +9,7 @@ import {
 import { SqliteAttachmentBatchRepository } from "../../src/persistence/sqlite/SqliteAttachmentBatchRepository";
 import { FakeChatProvider } from "../../src/providers/fake/FakeChatProvider";
 import { LocalAttachmentStore } from "../../src/storage/LocalAttachmentStore";
-import type { TelegramUpdate } from "../../src/transports/telegram/TelegramApi";
+import { HttpTelegramApi, type TelegramUpdate } from "../../src/transports/telegram/TelegramApi";
 import { TelegramPolling } from "../../src/transports/telegram/TelegramPolling";
 import { later, QueueFixture } from "../fixtures/queue";
 import { setupTelegram, update } from "../fixtures/telegram";
@@ -117,6 +117,92 @@ test("AC-G02/G03 PDF, photo's largest size and PNG document preserve metadata an
     "image/png",
   ]);
   expect(await readdir(join(f.root, "files"))).toEqual([]);
+  await t.requests.shutdown();
+});
+
+test.each(["metadata", "body"] as const)(
+  "transient %s read retries before acceptance and creates one exact photo request",
+  async (stage) => {
+    const t = setup();
+    await t.requests.start();
+    const bytes = new Uint8Array([255, 216, 255, 1]);
+    const waits: number[] = [];
+    let failed = false;
+    const api = new HttpTelegramApi(
+      "123:SYNTHETIC_READ_TOKEN",
+      async (_url, input) => {
+        const metadata = input.method === "POST";
+        if (!failed && metadata === (stage === "metadata")) {
+          failed = true;
+          throw Object.assign(new Error("private file path"), { code: "ECONNRESET" });
+        }
+        return metadata
+          ? Response.json({
+              ok: true,
+              result: { file_id: "photo", file_path: "photos/file.jpg", file_size: bytes.length },
+            })
+          : new Response(bytes);
+      },
+      async (ms) => {
+        waits.push(ms);
+      },
+    );
+    t.api.downloadFile = api.downloadFile.bind(api);
+    const input = fileUpdate(1, undefined, "exact photo caption");
+    delete input.message.document;
+    input.message.photo = [{ file_id: "photo", width: 20, height: 20, file_size: bytes.length }];
+    await Promise.all([t.bot.handle(input), t.bot.handle(input)]);
+    await t.requests.waitForIdle();
+    expect(waits).toEqual([1000]);
+    expect(t.provider.submissions).toHaveLength(1);
+    expect(t.provider.submissions[0].text).toBe("exact photo caption");
+    expect(t.provider.uploadedAttachments[0].sha256).toBe(
+      new Bun.CryptoHasher("sha256").update(bytes).digest("hex"),
+    );
+    expect(f.requests.findByUpdate("1")?.state).toBe("completed");
+    expect(await readdir(join(f.root, "files"))).toEqual([]);
+    await t.requests.shutdown();
+  },
+);
+
+test("exhausted file reads log a safe stage, clean storage, deduplicate failure and preserve later ingress", async () => {
+  const t = setup();
+  await t.requests.start();
+  let calls = 0;
+  const api = new HttpTelegramApi(
+    "123:SYNTHETIC_READ_TOKEN",
+    async () => {
+      calls++;
+      throw Object.assign(new Error("private file path and token"), { code: "ECONNRESET" });
+    },
+    async () => {},
+  );
+  t.api.downloadFile = api.downloadFile.bind(api);
+  const input = fileUpdate(1, undefined, "private caption");
+  await t.bot.handle(input);
+  await t.bot.handle(input);
+  expect(calls).toBe(3);
+  expect(t.provider.submissions).toEqual([]);
+  expect(f.requests.findByUpdate("1")).toBeNull();
+  expect(await readdir(join(f.root, "files"))).toEqual([]);
+  expect(t.api.sent.at(-1)?.text).toBe("ATTACHMENT_UNAVAILABLE");
+  expect(
+    t.logs
+      .map((line) => JSON.parse(line))
+      .filter((line) => line.operation === "telegram.attachment_failed"),
+  ).toMatchObject([
+    {
+      telegramUpdateId: "1",
+      telegramUserId: "123",
+      errorCode: "ATTACHMENT_UNAVAILABLE",
+      reason: "download_metadata",
+    },
+  ]);
+  expect(t.logs.join("")).not.toMatch(/private|SYNTHETIC_READ_TOKEN|file-1/);
+  await t.bot.handle(update(2, "next text"));
+  await t.requests.waitForIdle();
+  expect(t.provider.submissions).toHaveLength(1);
+  expect(f.requests.findByUpdate("2")?.state).toBe("completed");
   await t.requests.shutdown();
 });
 

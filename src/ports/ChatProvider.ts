@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { generatedImagesSchema } from "../domain/GeneratedImage";
 
 // Capabilities are immutable for one service lifetime; restart the service to change them.
 export const providerCapabilitiesSchema = z
@@ -52,12 +53,17 @@ const unknown = z.strictObject({
 });
 export type ProviderSubmission = z.infer<typeof submitted>;
 
-const assistantMessage = z.strictObject({ text: z.string(), id: z.string().min(1).optional() });
-export type ProviderAssistantMessage = z.infer<typeof assistantMessage>;
+export const assistantMessageSchema = z.strictObject({
+  text: z.string(),
+  id: z.string().min(1).optional(),
+  images: generatedImagesSchema.optional(),
+  imageError: z.enum(["GENERATED_IMAGE_UNAVAILABLE", "GENERATED_IMAGE_LIMIT"]).optional(),
+});
+export type ProviderAssistantMessage = z.infer<typeof assistantMessageSchema>;
 const completed = z.strictObject({
   ...correlation,
   state: z.literal("completed"),
-  message: assistantMessage,
+  message: assistantMessageSchema,
 });
 const cancelled = z.strictObject({ ...correlation, state: z.literal("cancelled") });
 const failed = z.strictObject({

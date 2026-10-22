@@ -1,0 +1,1611 @@
+{
+  "operation": "r8.mvp_acceptance",
+  "recordedAt": "2026-10-21T08:33:40.413248+00:00",
+  "baseHead": "8fd58ec0498055e6f883fcc3859c9d7d9eb57dcf",
+  "baseTree": "c895bb9386825f1e7af2ff6f0674589c3ae693ca",
+  "scope": "current uncommitted tests/docs delta; production source/dependencies/migrations unchanged",
+  "platform": {
+    "os": "macOS",
+    "architecture": "arm64",
+    "bun": "1.4.0",
+    "bunRevision": "34cbb9a40",
+    "chromium": "Google Chrome for Testing 151.0.7922.34"
+  },
+  "matrixCoverage": {
+    "globalRules": 4,
+    "acCriteria": 53,
+    "pass": 55,
+    "conditionalRealProviderNotApplicable": [
+      "AC-E04",
+      "AC-H01"
+    ],
+    "conditionalCoreContract": "PASS",
+    "failed": 0,
+    "blocked": 0
+  },
+  "providerCapabilities": {
+    "maxConcurrentConversations": 1,
+    "fileUpload": true,
+    "cancellation": false
+  },
+  "runs": {
+    "worktree": {
+      "command": "bun --no-env-file run verify",
+      "scope": "current worktree; no live opt-in",
+      "exitCode": 0,
+      "pass": 541,
+      "skip": 12,
+      "fail": 0,
+      "assertions": 3415,
+      "stdoutStderrSha256": "5e42538181df4e5d0db5224882fe2afb3bbecb2c8b6ef695ca95195830caed64",
+      "summaryOutput": [
+        "541 pass",
+        " 12 skip",
+        " 0 fail",
+        " 3415 expect() calls",
+        "Ran 553 tests across 45 files. [26.55s]"
+      ]
+    },
+    "standaloneFinal": {
+      "command": "sandbox-exec -f standalone.sb bun --no-env-file run verify",
+      "scope": "fresh dependency installation with final test delta; network and user-home access denied",
+      "exitCode": 0,
+      "pass": 541,
+      "skip": 12,
+      "fail": 0,
+      "assertions": 3415,
+      "stdoutStderrSha256": "b96b85c4c1433f84513fae8de5950ab2e06bb53385faf3af61fc94f1a803b0a4",
+      "summaryOutput": [
+        "541 pass",
+        " 12 skip",
+        " 0 fail",
+        " 3415 expect() calls",
+        "Ran 553 tests across 45 files. [25.89s]"
+      ],
+      "finalRuntimeAndTestInputsMatchVerifiedCopy": true,
+      "runtimeAndTestInputCount": 159,
+      "runtimeAndTestManifestSha256": "252cb3808a038ad8bddf271e8682cd96be1d3a0518c428b9f991ac6bfbd5f788"
+    },
+    "browser": {
+      "command": "TGWEBGPT_TEST_BROWSER=<local pinned Chromium> sandbox-exec -f standalone.sb bun --no-env-file run test:browser",
+      "scope": "real Chromium; intercepted synthetic ChatGPT pages; network and user-home access denied",
+      "exitCode": 0,
+      "pass": 12,
+      "skip": 0,
+      "fail": 0,
+      "assertions": 81,
+      "stdoutStderrSha256": "b8064a918f75d508a97caf73588004c50b8c730ea20d0ad8d92a56afb4959203",
+      "summaryOutput": [
+        "12 pass",
+        " 0 fail",
+        " 81 expect() calls",
+        "Ran 12 tests across 1 file. [29.57s]"
+      ],
+      "runtimeAndBrowserInputsUnchangedSinceExecution": true,
+      "runtimeAndBrowserInputCount": 103,
+      "runtimeAndBrowserManifestSha256": "6a0b7b720cbaa61960defdd706b3d63c323a6430aaf8d934b493c0ac13894cc1"
+    }
+  },
+  "freshInstall": {
+    "initialTrackedInputCount": 182,
+    "initialInputManifestSha256": "7a8672e5e50e27092b794353561f376d375fe833c39a0b19cb5aa4dea3b3cd12",
+    "finalCopyInputCount": 183,
+    "finalInputManifestSha256": "1737ba81c3616d1b7bcaa131622f6c3f030287b729a1b3fe3e7bd11025fdf174",
+    "command": "bun --no-env-file install --frozen-lockfile",
+    "newPackageCache": true,
+    "packagesInstalled": 14,
+    "exitCode": 0,
+    "installOutput": [
+      "bun install v1.4.0 (34cbb9a40)",
+      "",
+      "+ @biomejs/biome@2.5.14",
+      "+ @types/bun@1.4.0",
+      "+ @types/turndown@5.0.5",
+      "+ typescript@5.9.3",
+      "+ playwright-core@1.62.0",
+      "+ tiktoken@1.0.22",
+      "+ turndown@7.2.0",
+      "+ turndown-plugin-gfm@1.0.2",
+      "+ zod@4.4.3",
+      "",
+      "14 packages installed [20.28s]"
+    ],
+    "initialSandboxedAttempt": "DNSResolveFailed; dependency install succeeded after network-enabled tool escalation. Verification stayed network-denied.",
+    "sandboxProfile": [
+      "(version 1)",
+      "(allow default)",
+      "(deny network*)",
+      "(deny file-read* file-write* (subpath \"/Users/shabanov.boris4\"))"
+    ],
+    "sandboxProbes": {
+      "homeReadDenied": true,
+      "networkDenied": true
+    },
+    "readmeBootstrap": {
+      "configuration": "copy .env.example and fill only synthetic required values in the fresh directory",
+      "commands": [
+        "bun --env-file=.env run config:check",
+        "bun --env-file=.env run bootstrap",
+        "bun --env-file=.env run bootstrap"
+      ],
+      "exitCodes": [
+        0,
+        0,
+        0
+      ],
+      "observedOperations": [
+        "config.valid",
+        "bootstrap.complete",
+        "bootstrap.complete"
+      ],
+      "database": {
+        "schema": {
+          "version": 7
+        },
+        "integrity": {
+          "integrity_check": "ok"
+        },
+        "foreignKeyErrors": 0,
+        "requests": {
+          "count": 0
+        },
+        "browserProfileCreated": false
+      }
+    },
+    "exclusions": [
+      "original .git",
+      "real .env",
+      "existing node_modules/cache",
+      "production database/profile/attachments",
+      "SPEC.md",
+      ".trigger-tree/"
+    ]
+  },
+  "changedInputSha256": {
+    "README.md": "44a890dd05437e91236e7298cdc9c4d25d1f05867cae8fb2461560311a088988",
+    "ROADMAP.md": "4cc39ba533f33a9ec18e8fa4cc8c32112c65b35371f2a35d005d8e73da3eaa31",
+    "tests/fixtures/provider-crash.ts": "e271a648ab2061d439b8b56eef000e2dcfc54838b3f3cd0e37352b0fefd11fec",
+    "tests/persistence/request-recovery.test.ts": "7624bc2055dfbfc0bd0e186049036cc054d5ab5f6e145259d5cdd1a902eca327",
+    "docs/verification/R8-acceptance.md": "57492491ce1490256f78950827053f0e1250bb86cfba52e9bf77fdeac5e1c35d"
+  },
+  "witnesses": {
+    "T01": [
+      {
+        "run": "worktree",
+        "file": "tests/cli/bootstrap.test.ts",
+        "output": "(pass) local bootstrap CLI > missing config exits with safe field errors before filesystem side effects [299.73ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/config.test.ts",
+        "output": "(pass) configuration > errors describe fields without exposing invalid values [0.07ms]"
+      }
+    ],
+    "T02": [
+      {
+        "run": "worktree",
+        "file": "tests/cli/bootstrap.test.ts",
+        "output": "(pass) local bootstrap CLI > real runtime validates the Telegram token before opening its browser profile [272.61ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-runtime.test.ts",
+        "output": "(pass) composition validates bot token before database effects/provider startup [1.76ms]"
+      }
+    ],
+    "T03": [
+      {
+        "run": "browser",
+        "file": "tests/browser/chatgpt-web.test.ts",
+        "output": "(pass) R6 fork with real Chromium and synthetic ChatGPT DOM > AUTH_REQUIRED differs from malformed/unreachable session and health submits nothing [3003.49ms]"
+      }
+    ],
+    "T04": [
+      {
+        "run": "browser",
+        "file": "tests/browser/chatgpt-web.test.ts",
+        "output": "(pass) R6 fork with real Chromium and synthetic ChatGPT DOM > browser profile preserves only synthetic authentication through a real browser restart [555.51ms]"
+      }
+    ],
+    "T05": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-B01 /start responds with readiness and all required commands [22.47ms]"
+      }
+    ],
+    "T06": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-B02/B03 denied text/commands/attachments and ambiguous senders have zero privileged effects [13.25ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-attachments.test.ts",
+        "output": "(pass) AC-G01/B03 single source bytes enter one existing provider path; caption remains exact text even when it is a command [14.51ms]"
+      }
+    ],
+    "T07": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/conversation-service.test.ts",
+        "output": "(pass) AC-C01/C02 creates, persists and selects named/unique generated aliases [17.98ms]"
+      }
+    ],
+    "T08": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/conversation-service.test.ts",
+        "output": "(pass) AC-C03 rejects duplicate/invalid aliases before remote create or inspect [8.50ms]"
+      }
+    ],
+    "T09": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-provider.test.ts",
+        "output": "(pass) initialized drafts bind durably to inspected remote identity; aliases converge without another prompt [2.42ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-provider.test.ts",
+        "output": "(pass) inaccessible/invalid references cannot create a ready binding or mutate another host [0.97ms]"
+      },
+      {
+        "run": "browser",
+        "file": "tests/browser/chatgpt-web.test.ts",
+        "output": "(pass) R6 fork with real Chromium and synthetic ChatGPT DOM > existing/new aliases converge, native PDF bytes upload once, partial text is not completion [2770.30ms]"
+      },
+      {
+        "run": "browser",
+        "file": "tests/browser/chatgpt-web.test.ts",
+        "output": "(pass) R6 fork with real Chromium and synthetic ChatGPT DOM > inaccessible conversations are rejected and a foreign new turn cannot complete this request [8215.47ms]"
+      }
+    ],
+    "T10": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-C01..09 command routing, duplicate commands, ownership and archive/reuse [19.29ms]"
+      }
+    ],
+    "T11": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/conversation-service.test.ts",
+        "output": "(pass) AC-C06..09 user-scoped selection, rename, archive/reuse preserve historical identity [9.79ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/repositories.test.ts",
+        "output": "(pass) R1 repositories > archive releases alias for a new mapping without rebinding historical requests [10.07ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/repositories.test.ts",
+        "output": "(pass) R1 repositories > rename rejects another owner's ID without changing either user's state [7.93ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/repositories.test.ts",
+        "output": "(pass) R1 repositories > archive rejects another owner's ID without changing either user's state [7.53ms]"
+      }
+    ],
+    "T12": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-D01/D02/E01 exact ordinary text and replies target selection once with ordered progress [14.39ms]"
+      }
+    ],
+    "T13": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 request lifecycle > AC-D03 slow generation and partial text remain running until completion evidence [10.71ms]"
+      },
+      {
+        "run": "browser",
+        "file": "tests/browser/chatgpt-web.test.ts",
+        "output": "(pass) R6 fork with real Chromium and synthetic ChatGPT DOM > existing/new aliases converge, native PDF bytes upload once, partial text is not completion [2770.30ms]"
+      }
+    ],
+    "T14": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 request lifecycle > AC-D04 result delivery rejection cannot reclassify durable completion or resubmit [6.39ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-D04 delivery/progress failures preserve durable completion and dedup without prompt retry [11.58ms]"
+      }
+    ],
+    "T15": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) completion and operational result commit atomically with input cleanup and unchanged dedup [6.25ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) a failed outbox write rolls back terminal settlement and preserves original input [5.99ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) equivalent ISO timestamps with different precision do not delay or reorder delivery [6.17ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) render plan and confirmed chunk cursor survive restart; only an unconfirmed part is eligible [9.49ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) crashed attempts consume the persisted budget and do not reset it on restart [17.28ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) a persisted final acknowledgement survives crash and the exhausted budget at +%sms [8.70ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) a persisted final acknowledgement survives crash and the exhausted budget at +%sms [8.78ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) 24h expiration purges pending payload/plan but retains delivery error and provider completion [6.09ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) 24h expiration purges failed payload/plan but retains delivery error and provider completion [6.02ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) 0007 upgrades populated 0006 without inventing prior results; failed upgrade rolls back and reopen preserves output [12.95ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-results.test.ts",
+        "output": "(pass) schema constraints reject missing FK, invalid delivery states and unbounded attempts [5.83ms]"
+      }
+    ],
+    "T16": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/delivery-recovery.test.ts",
+        "output": "(pass) SIGKILL after settled resumes only Telegram delivery and never the provider prompt [85.64ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/delivery-recovery.test.ts",
+        "output": "(pass) SIGKILL after telegram_accepted resumes only Telegram delivery and never the provider prompt [86.86ms]"
+      }
+    ],
+    "T17": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) delivery retries only the ambiguous part after restart and purges output on success [11.37ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) bounded backoff persists across attempts and exhaustion cannot resubmit a provider prompt [17.98ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) invalid/unsupported flood minimum %s never causes an early retry [6.21ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) invalid/unsupported flood minimum %s never causes an early retry [6.64ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) invalid/unsupported flood minimum %s never causes an early retry [6.36ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) invalid/unsupported flood minimum %s never causes an early retry [7.45ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) invalid/unsupported flood minimum %s never causes an early retry [6.75ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) valid retry_after is a minimum and confirmed chunks still avoid replay [7.02ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) explicit parser failure falls back only for that part and keeps stable persisted chunks [6.64ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) plain fallback rechecks expiry after the rich-parser rejection [6.64ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) plain fallback rechecks revocation after the rich-parser rejection [6.58ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) plain fallback rechecks cancellation after the rich-parser rejection [6.51ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) revoked authorization prevents resumed delivery without changing completion [6.42ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) expiry removes content and exposes a durable delivery error; no late HTTP attempt occurs [6.29ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-result-delivery.test.ts",
+        "output": "(pass) cancellation propagates, joins the HTTP operation and leaves durable pending output [6.53ms]"
+      }
+    ],
+    "T18": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/delivery-runtime.test.ts",
+        "output": "(pass) runtime owns bounded delivery retries across polling without another provider submission [1019.40ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/delivery-runtime.test.ts",
+        "output": "(pass) signal shutdown retains the process lease until an owned delivery attempt settles, then closes the provider [1030.22ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/delivery-runtime.test.ts",
+        "output": "(pass) startup purges expired output and status reports its durable delivery error without replay [25.43ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-durable-results.test.ts",
+        "output": "(pass) a durable delivery retry clears status failure, preserves original reply target and submits one provider prompt [11.81ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-durable-results.test.ts",
+        "output": "(pass) initial result and retry worker share one owned HTTP attempt and preserve progress order [11.28ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-durable-results.test.ts",
+        "output": "(pass) after reopen delivery rechecks the allowlist, never replays completion and hides another user's error [17.11ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-durable-results.test.ts",
+        "output": "(pass) expired response is purged on resumed worker and its persistent error is visible in doctor [10.90ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-durable-results.test.ts",
+        "output": "(pass) failure to persist the output leaves a safe running blocker and never delivers an unrecorded completion [10.43ms]"
+      }
+    ],
+    "T19": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/queue.test.ts",
+        "output": "(pass) R2 keyed queue acceptance > AC-E01 duplicate before/during/after execution has one prompt and original input [10.66ms]"
+      }
+    ],
+    "T20": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/queue.test.ts",
+        "output": "(pass) R2 keyed queue acceptance > AC-E02/E03/E05 FIFO spans aliases; one active remote mutation at every barrier [11.50ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 request lifecycle > AC-E02/E03/E05 aliases share FIFO through the whole generation [8.94ms]"
+      }
+    ],
+    "T21": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/queue.test.ts",
+        "output": "(pass) R2 keyed queue acceptance > AC-E04 exact opaque different keys execute in parallel [9.53ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/queue.test.ts",
+        "output": "(pass) R2 keyed queue acceptance > global concurrency 1 respects a lower execution capability without alias keys [8.80ms]"
+      }
+    ],
+    "T22": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/repositories.test.ts",
+        "output": "(pass) R1 repositories > durable active selection enforces ownership and rename preserves identity [6.89ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/repositories.test.ts",
+        "output": "(pass) R1 repositories > request/attachment round trip survives separate-process inspection [74.62ms]"
+      }
+    ],
+    "T23": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/queue.test.ts",
+        "output": "(pass) R2 keyed queue acceptance > SIGKILL after queued commit reconstructs only proven safe work in a new runtime [82.34ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/queue.test.ts",
+        "output": "(pass) R2 keyed queue acceptance > SIGKILL after sending commit reconstructs only proven safe work in a new runtime [94.92ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > AC-F02 safe queued input executes once in committed order after reconnect [17.60ms]"
+      }
+    ],
+    "T24": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > SIGKILL in actual RequestService uploading never resubmits during startup [97.64ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > SIGKILL in actual RequestService pre_submit never resubmits during startup [73.65ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > SIGKILL in actual RequestService sending never resubmits during startup [77.60ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > SIGKILL in actual RequestService running never resubmits during startup [77.23ms]"
+      }
+    ],
+    "T25": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > AC-F03/F04/F05 interrupted uploading without reliable evidence stays blocked, never replayed [17.62ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > AC-F03/F04/F05 interrupted sending without reliable evidence stays blocked, never replayed [17.14ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > AC-F03/F04/F05 interrupted running without reliable evidence stays blocked, never replayed [17.48ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > AC-F03/F04/F05 interrupted cancel_requested without reliable evidence stays blocked, never replayed [16.82ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/request-recovery.test.ts",
+        "output": "(pass) R3 startup reconciliation > AC-F03/F04/F05 interrupted unknown without reliable evidence stays blocked, never replayed [18.25ms]"
+      }
+    ],
+    "T26": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) operator completion preserves UNKNOWN/dedup and resumes only queued successors once after restart [10.68ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) confirmation releases only its exact request and canonical key [6.31ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) cannot confirm queued as an UNKNOWN completion [5.19ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) cannot confirm sending as an UNKNOWN completion [5.36ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) cannot confirm running as an UNKNOWN completion [5.39ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) cannot confirm completed as an UNKNOWN completion [5.56ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) cannot confirm failed as an UNKNOWN completion [5.61ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) missing/stale/invalid confirmations and a failed audit write leave the key blocked [6.38ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) fresh schema enforces audit identity, outcome and request FK [5.54ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/unknown-recovery.test.ts",
+        "output": "(pass) 0006 upgrades populated 0005 atomically and preserves previous rows/ledger through failure and restart [12.73ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/unknown-recovery.test.ts",
+        "output": "(pass) explicit confirmation and a valid request ID are required: {\"args\":[\"00000000-0000-4000-8000-000000000001\"]} [284.90ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/unknown-recovery.test.ts",
+        "output": "(pass) explicit confirmation and a valid request ID are required: {\"args\":[\"00000000-0000-4000-8000-000000000001\",\"--force\"]} [280.65ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/unknown-recovery.test.ts",
+        "output": "(pass) explicit confirmation and a valid request ID are required: {\"args\":[\"private invalid argument\",\"--confirm-completed\"]} [279.65ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/unknown-recovery.test.ts",
+        "output": "(pass) confirmed offline recovery requires no credentials, preserves pending input and is idempotent [562.31ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/unknown-recovery.test.ts",
+        "output": "(pass) a running gateway rejects recovery without changing the UNKNOWN or queued payload [280.80ms]"
+      }
+    ],
+    "T27": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/gateway-lease.test.ts",
+        "output": "(pass) runtime and maintenance exclude each other across path aliases and release explicitly [1.17ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/gateway-lease.test.ts",
+        "output": "(pass) a killed process releases the SQLite lease without removing its lock file [56.22ms]"
+      }
+    ],
+    "T28": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-attachments.test.ts",
+        "output": "(pass) AC-G01/B03 single source bytes enter one existing provider path; caption remains exact text even when it is a command [14.51ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-provider.test.ts",
+        "output": "(pass) adapter reads actual attachment bytes in order and preserves filenames, MIME and exact caption [2.33ms]"
+      }
+    ],
+    "T29": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-attachments.test.ts",
+        "output": "(pass) AC-G02/G03 PDF, photo's largest size and PNG document preserve metadata and bytes [14.43ms]"
+      },
+      {
+        "run": "browser",
+        "file": "tests/browser/chatgpt-web.test.ts",
+        "output": "(pass) R6 fork with real Chromium and synthetic ChatGPT DOM > captionless PDF binds the logical group and completes exactly once [2699.05ms]"
+      },
+      {
+        "run": "browser",
+        "file": "tests/browser/chatgpt-web.test.ts",
+        "output": "(pass) R6 fork with real Chromium and synthetic ChatGPT DOM > captionless JPEG binds the logical group and completes exactly once [2713.33ms]"
+      }
+    ],
+    "T30": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/attachments.test.ts",
+        "output": "(pass) AC-G04/G05 declared and streamed size/count limits reject before send and cancel oversized streams [0.89ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-attachments.test.ts",
+        "output": "(pass) AC-G04/G05 metadata and actual size rejection, per-album limit and another open album prevent extra downloads/submissions [10.17ms]"
+      }
+    ],
+    "T31": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/attachments.test.ts",
+        "output": "(pass) AC-G06 traversal filename is display metadata; unsafe storage keys, root/file symlinks cannot read outside [1.80ms]"
+      }
+    ],
+    "T32": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/attachments.test.ts",
+        "output": "(pass) AC-G07 TTL protects leases/durable refs and removes only aged owned regular files [1.60ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-attachments.test.ts",
+        "output": "(pass) album waits for explicit /send, binds first conversation and atomically preserves ordered captions/update identities across restart [16.39ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-attachments.test.ts",
+        "output": "(pass) TTL expires unaccepted drafts and closed groups never restart; accepted queued files survive age and restart [14.28ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/attachment-batches.test.ts",
+        "output": "(pass) draft append writes file metadata/caption/update marker atomically and protects generated key across reopen [9.13ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/attachment-batches.test.ts",
+        "output": "(pass) source markers, queue acceptance and closing draft commit together, including rejection/rollback [9.05ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/attachment-batches.test.ts",
+        "output": "(pass) draft ownership, one-open constraint, closed identity and expiry cannot be bypassed on another connection [6.19ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/persistence/attachment-batches.test.ts",
+        "output": "(pass) 0005 upgrades populated 0004, rolls back a subsequent failed migration, and reopens with unchanged old rows/ledger [16.20ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-attachments.test.ts",
+        "output": "(pass) interrupted upload complete respects ownership proof, UNKNOWN retention and never replays [10.36ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-attachments.test.ts",
+        "output": "(pass) interrupted upload no_input respects ownership proof, UNKNOWN retention and never replays [9.49ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-attachments.test.ts",
+        "output": "(pass) interrupted upload no_acceptance respects ownership proof, UNKNOWN retention and never replays [9.50ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-attachments.test.ts",
+        "output": "(pass) interrupted upload neither respects ownership proof, UNKNOWN retention and never replays [10.65ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-attachments.test.ts",
+        "output": "(pass) ambiguous send removes R2 working bytes but keeps UNKNOWN and blocks successors, without another provider submission [7.63ms]"
+      }
+    ],
+    "T33": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation completed and cancellation completed preserve approved source precedence [8.18ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation completed and cancellation failed preserve approved source precedence [8.13ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation completed and cancellation timeout preserve approved source precedence [7.78ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation completed and cancellation cancelled preserve approved source precedence [7.64ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation failed and cancellation completed preserve approved source precedence [7.51ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation failed and cancellation failed preserve approved source precedence [7.68ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation failed and cancellation timeout preserve approved source precedence [7.77ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation failed and cancellation cancelled preserve approved source precedence [7.75ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation timeout and cancellation completed preserve approved source precedence [7.54ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation timeout and cancellation failed preserve approved source precedence [7.57ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation timeout and cancellation timeout preserve approved source precedence [7.41ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation timeout and cancellation cancelled preserve approved source precedence [7.72ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation cancelled and cancellation completed preserve approved source precedence [8.07ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation cancelled and cancellation failed preserve approved source precedence [8.21ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation cancelled and cancellation timeout preserve approved source precedence [7.79ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 terminal observation cancelled and cancellation cancelled preserve approved source precedence [7.76ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 proven failed with terminal observation releases one-slot capacity and preserves successors [8.72ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 proven failed with unknown observation releases one-slot capacity and preserves successors [8.38ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 proven timeout with terminal observation releases one-slot capacity and preserves successors [8.00ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01 proven timeout with unknown observation releases one-slot capacity and preserves successors [8.27ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > foreign failed cancellation evidence cannot release one-slot capacity [6.45ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > foreign timeout cancellation evidence cannot release one-slot capacity [6.46ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > in-flight send holds its key; stop cannot target an unconfirmed submission [6.54ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01/H03 cancellation_success keeps later queued requests and one stop mutation [6.71ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01/H03 cancellation_completion_race keeps later queued requests and one stop mutation [6.86ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > completion cannot release key while the cancellation mutation is still settling [6.41ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H02 no active generation and unsupported cancellation make no stop call [6.07ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > throw cancel evidence cannot invent cancellation or release successors [6.27ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > foreign cancel evidence cannot invent cancellation or release successors [6.21ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > cancellation acknowledgement alone leaves the generation running until final evidence [5.93ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > shutdown during startup cannot reopen admission or dispatch [5.46ms]"
+      }
+    ],
+    "T34": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H02 no active generation and unsupported cancellation make no stop call [6.07ms]"
+      }
+    ],
+    "T35": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01/H03 cancellation_success keeps later queued requests and one stop mutation [6.71ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/request-service.test.ts",
+        "output": "(pass) R3 cancellation and shutdown > AC-H01/H03 cancellation_completion_race keeps later queued requests and one stop mutation [6.86ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-H01..03 /stop targets selected canonical alias, dedups stop and preserves successors [13.79ms]"
+      }
+    ],
+    "T36": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-renderer.test.ts",
+        "output": "(pass) AC-I01 exact source and Unicode survive ordered chunking at Telegram limit [0.47ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-renderer.test.ts",
+        "output": "(pass) AC-I02 fenced blocks stay atomic when possible, split pre tags are balanced [0.42ms]"
+      }
+    ],
+    "T37": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-I01/I02/I03 rich parse fallback retries only rejected chunk and never resubmits provider [12.42ms]"
+      }
+    ],
+    "T38": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-polling.test.ts",
+        "output": "(pass) R7 reconnect keeps the handled offset, restores readiness and initializes only once [0.18ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-health-recovery.test.ts",
+        "output": "(pass) failed health navigation is discarded and the next read-only health creates a fresh probe [0.36ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-health-recovery.test.ts",
+        "output": "(pass) concurrent health requests share a single probe and closing the context permits a later safe reopen [0.10ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-health-recovery.test.ts",
+        "output": "(pass) AUTH_REQUIRED can be checked again without a prompt, upload or mutation primitive [0.06ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-health-recovery.test.ts",
+        "output": "(pass) session disposal joins health even when context close fails: %s [0.07ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) database read failures produce explicit ERROR diagnostics without killing ingress or exposing raw details [8.23ms]"
+      }
+    ],
+    "T39": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-J02/J03 /status health is read-only and distinguishes auth/provider/transport failure [9.72ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) AUTH_REQUIRED remains distinguishable during a transport outage [7.86ms]"
+      }
+    ],
+    "T40": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) invalid configuration has a structured safe report before any network or profile effects [12.27ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) AC-J04 stopped-gateway doctor only probes getMe and provider health, preserves DB, then releases its lease [14.12ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) a running gateway blocks CLI provider probing without taking or deleting its lease [12.89ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) doctor holds the process lease until provider disposal finishes [12.07ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) a provider factory failure releases the lease and returns fixed diagnostics [10.96ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) provider auth_required never yields ready or raw native data [11.24ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) provider throw never yields ready or raw native data [10.69ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) provider malformed never yields ready or raw native data [11.10ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) provider close_failure never yields ready or raw native data [10.82ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) Telegram invalid_token is distinguishable without polling, sending or leaking the token [10.96ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) Telegram network is distinguishable without polling, sending or leaking the token [11.31ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) missing profile and database are reported without initializing either [10.86ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/doctor.test.ts",
+        "output": "(pass) an unresolved UNKNOWN makes the preflight non-ready while preserving independent queued work [13.07ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/doctor.test.ts",
+        "output": "(pass) doctor CLI emits one structured configuration report without filesystem effects [272.03ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/doctor.test.ts",
+        "output": "(pass) doctor CLI distinguishes invalid token and missing DB without creating a profile or database [270.16ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/doctor.test.ts",
+        "output": "(pass) doctor CLI reads an existing schema without migrating or initializing the browser [282.60ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/cli/doctor.test.ts",
+        "output": "(pass) doctor CLI leaves an unmigrated database empty and rejects extra arguments safely [537.83ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) AC-J04 /doctor reports component readiness and capabilities without provider mutations [8.10ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) UNKNOWN guidance survives restart; exact operator release removes the diagnostic block without replay [16.12ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) diagnostics contain only the caller's request IDs even when another user's UNKNOWN reserves capacity [9.86ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) database read failures produce explicit ERROR diagnostics without killing ingress or exposing raw details [8.23ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) doctor is authorization guarded before provider health, including a foreign bot mention [6.92ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-diagnostics.test.ts",
+        "output": "(pass) AUTH_REQUIRED remains distinguishable during a transport outage [7.86ms]"
+      }
+    ],
+    "T41": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/logging.test.ts",
+        "output": "(pass) redaction and ordinary logs > redacts secret keys recursively without mutating the caller [0.08ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/logging.test.ts",
+        "output": "(pass) redaction and ordinary logs > redacts known secrets in strings, arrays and encoded URLs [0.04ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/logging.test.ts",
+        "output": "(pass) redaction and ordinary logs > redacts recognizable authorization and cookie header values [0.03ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/logging.test.ts",
+        "output": "(pass) redaction and ordinary logs > serializes correlation fields after redaction and discards arbitrary content [0.13ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/logging.test.ts",
+        "output": "(pass) redaction and ordinary logs > filters levels before writing and escapes newlines in values [0.04ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/logging.test.ts",
+        "output": "(pass) redaction and ordinary logs > R7 retry diagnostics allow numeric timing without raw exceptions or token URLs [0.04ms]"
+      }
+    ],
+    "T42": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/logging.test.ts",
+        "output": "(pass) redaction and ordinary logs > serializes correlation fields after redaction and discards arbitrary content [0.13ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/telegram-bot.test.ts",
+        "output": "(pass) AC-D01/D02/E01 exact ordinary text and replies target selection once with ordered progress [14.39ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-runtime.test.ts",
+        "output": "(pass) R7 reconnect/redelivery preserves one durable request and provider prompt: completed [1023.07ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-runtime.test.ts",
+        "output": "(pass) R7 reconnect/redelivery preserves one durable request and provider prompt: unknown [1024.96ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/gateway-runtime.test.ts",
+        "output": "(pass) R7 reconnect/redelivery preserves one durable request and provider prompt: delivery_failed [1025.10ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/delivery-runtime.test.ts",
+        "output": "(pass) runtime owns bounded delivery retries across polling without another provider submission [1019.40ms]"
+      }
+    ],
+    "T43": [
+      {
+        "run": "worktree",
+        "file": "tests/persistence/repositories.test.ts",
+        "output": "(pass) R1 repositories > storage contains operational input/metadata and no history/auth tables [4.98ms]"
+      }
+    ],
+    "T44": [
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-profile.test.ts",
+        "output": "(pass) dedicated profile is private, owned, and stores only durable conversation identity [2.93ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-profile.test.ts",
+        "output": "(pass) existing remote aliases converge across restart; identity never silently changes [2.17ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-profile.test.ts",
+        "output": "(pass) foreign profiles and symlink roots/metadata are rejected without reading browser state [2.62ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-profile.test.ts",
+        "output": "(pass) malformed or duplicate persisted identity cannot create a second canonical key [1.90ms]"
+      },
+      {
+        "run": "worktree",
+        "file": "tests/unit/chatgpt-web-profile.test.ts",
+        "output": "(pass) refresh after browser ownership changes preserves the latest canonical binding [2.12ms]"
+      }
+    ]
+  },
+  "syntheticRequestTrace": {
+    "source": "new R8 deterministic offline runGateway reproduction with fake Telegram/provider, isolated temporary DB",
+    "observedAt": "2026-10-21T08:31:23.424Z",
+    "providerSubmissions": 1,
+    "contentAbsentFromLogs": true,
+    "records": [
+      {
+        "operation": "telegram.accepted",
+        "requestId": "44e4fb58-47cc-4af5-90fd-c828569f5f5c",
+        "telegramUpdateId": "2",
+        "conversationId": "9dba6d2a-ac5e-4244-b0db-6b5af145fa50",
+        "requestState": "queued"
+      },
+      {
+        "operation": "provider.send",
+        "requestId": "44e4fb58-47cc-4af5-90fd-c828569f5f5c",
+        "telegramUpdateId": "2",
+        "conversationId": "9dba6d2a-ac5e-4244-b0db-6b5af145fa50",
+        "requestState": "sending"
+      },
+      {
+        "operation": "provider.submitted",
+        "requestId": "44e4fb58-47cc-4af5-90fd-c828569f5f5c",
+        "telegramUpdateId": "2",
+        "conversationId": "9dba6d2a-ac5e-4244-b0db-6b5af145fa50",
+        "requestState": "running"
+      },
+      {
+        "operation": "request.settled",
+        "requestId": "44e4fb58-47cc-4af5-90fd-c828569f5f5c",
+        "telegramUpdateId": "2",
+        "conversationId": "9dba6d2a-ac5e-4244-b0db-6b5af145fa50",
+        "requestState": "completed"
+      },
+      {
+        "operation": "telegram.delivered",
+        "requestId": "44e4fb58-47cc-4af5-90fd-c828569f5f5c",
+        "telegramUpdateId": "2",
+        "conversationId": "9dba6d2a-ac5e-4244-b0db-6b5af145fa50",
+        "requestState": "completed"
+      }
+    ],
+    "relatedReproductionTest": "tests/unit/delivery-runtime.test.ts: runtime owns bounded delivery retries across polling without another provider submission",
+    "testCommand": "bun --no-env-file test ./tests/unit/delivery-runtime.test.ts --test-name-pattern \"runtime owns bounded delivery retries\"",
+    "checks": [
+      "one of each trace operation",
+      "same nonempty request/conversation IDs and ingress update",
+      "one provider submission",
+      "synthetic input/output/token absent from logs"
+    ]
+  },
+  "sourceBoundaries": {
+    "scope": [
+      "src/application",
+      "src/domain",
+      "src/ports",
+      "src/transports",
+      "src/providers/chatgpt-web",
+      "src/persistence"
+    ],
+    "typeScriptFiles": 70,
+    "importSpecifiers": 278,
+    "boundaryViolations": [],
+    "manifestPackageCount": 9,
+    "privateLocalDependencyReferences": [],
+    "endpointAndProjectSearch": {
+      "files": 89,
+      "patterns": {
+        "unrelated_project": "(?i)nightreviewer|/Users/|/home/",
+        "openai_generation_endpoint": "(?i)api\\.openai\\.com|/v1/chat/completions|/v1/responses"
+      },
+      "matchingFiles": {
+        "unrelated_project": [],
+        "openai_generation_endpoint": []
+      }
+    },
+    "limitations": [
+      "static literal import/endpoint checks; dynamic behavior is additionally exercised by the isolated suites",
+      "tests/docs excluded from negative endpoint search because examples are not runtime dependencies"
+    ]
+  },
+  "securityAudit": {
+    "operation": "r8.local_security_audit",
+    "observedAt": "2026-10-21T08:32:09.587Z",
+    "sourceHead": "8fd58ec0498055e6f883fcc3859c9d7d9eb57dcf",
+    "gitObjects": {
+      "objectCount": 1158,
+      "blobCount": 544,
+      "blobBytes": 6632581,
+      "includesLocallyAvailableUnreachableObjects": true,
+      "refsEnumerated": 809
+    },
+    "trackedFilesInspected": 182,
+    "exactKnownBotTokenMatches": 0,
+    "knownTokenForms": [
+      "raw",
+      "URL-encoded",
+      "base64"
+    ],
+    "artifactsInspected": 17,
+    "credentialRules": [
+      "telegram_token",
+      "openai_key",
+      "jwt",
+      "private_key"
+    ],
+    "candidates": [
+      {
+        "kind": "telegram_token",
+        "fingerprint": "15e9d9a60205880b04e09954d2d62899d272eeef4914413a826f3a40a9d3a538",
+        "paths": [
+          "tests/unit/telegram-delivery-api.test.ts"
+        ],
+        "blobs": 2,
+        "classification": "deliberate synthetic test literal, distinct from working token; fixture/SYNTHETIC marker verified locally"
+      },
+      {
+        "kind": "telegram_token",
+        "fingerprint": "6b5c7823dcc19ef4c92fd824f8d642ad6b6c4f95412b88aeaf2dbd2ff8d433f7",
+        "paths": [
+          "tests/unit/delivery-runtime.test.ts"
+        ],
+        "blobs": 2,
+        "classification": "deliberate synthetic test literal, distinct from working token; fixture/SYNTHETIC marker verified locally"
+      }
+    ],
+    "forbiddenTrackedPaths": [],
+    "forbiddenReachableHistoryPaths": [],
+    "database": {
+      "readOnlySnapshot": true,
+      "tableCount": 14,
+      "rowsInspected": 147,
+      "stringFieldsInspected": 553,
+      "authColumnCount": 0,
+      "recognizableCredentials": 0,
+      "exactTokenMatches": 0,
+      "integrity": {
+        "integrity_check": "ok"
+      },
+      "foreignKeyErrors": 0,
+      "schemaVersion": {
+        "version": 7
+      },
+      "requests": [
+        {
+          "state": "completed",
+          "count": 24
+        },
+        {
+          "state": "failed",
+          "count": 1
+        },
+        {
+          "state": "unknown",
+          "count": 2
+        }
+      ],
+      "requestInputs": 0,
+      "attachments": 0,
+      "retainedOutputs": 0,
+      "unknownConfirmations": 2,
+      "generatedAttachmentFiles": 0
+    },
+    "exclusions": [
+      "ignored .env and browser profile contents are intentional private runtime state; not published",
+      "remote-only Git objects and external archives are unavailable",
+      "heuristic signatures cannot prove absence of every possible secret",
+      "SQLite logical rows inspected, not freed pages/WAL/backups"
+    ]
+  },
+  "historicalLiveR7": {
+    "source": "historical R7 receipt, not a new R8 live execution",
+    "sourceHead": "8fd58ec0498055e6f883fcc3859c9d7d9eb57dcf",
+    "observedAt": "2026-10-21T07:54:35.439Z",
+    "operatorConfirmedDoctor": "READY",
+    "operatorConfirmedAllThreeSyntheticAnswers": true,
+    "traceEvidence": "runtime metadata observed by author; one event of each kind per request",
+    "cases": [
+      {
+        "scenario": "text",
+        "request": {
+          "id": "e02e0846-916f-447c-9d6f-96a65d10f46c",
+          "state": "completed",
+          "updateId": "591933746",
+          "createdAt": "2026-10-21T07:50:21.181Z",
+          "submittedAt": "2026-10-21T07:50:26.362Z",
+          "finishedAt": "2026-10-21T07:50:37.466Z"
+        },
+        "delivery": {
+          "state": "delivered",
+          "attempts": 1,
+          "confirmedChunks": 1,
+          "failureCode": null,
+          "payloadCleared": 1,
+          "planCleared": 1
+        },
+        "dedup": {
+          "requestId": "e02e0846-916f-447c-9d6f-96a65d10f46c"
+        },
+        "observedTrace": {
+          "accepted": 1,
+          "providerSend": 1,
+          "providerSubmitted": 1,
+          "settled": 1,
+          "telegramDelivered": 1
+        }
+      },
+      {
+        "scenario": "image",
+        "request": {
+          "id": "0d9bcc95-bb72-4adf-b19c-27faa942f363",
+          "state": "completed",
+          "updateId": "591933747",
+          "createdAt": "2026-10-21T07:51:00.030Z",
+          "submittedAt": "2026-10-21T07:51:05.689Z",
+          "finishedAt": "2026-10-21T07:51:14.509Z"
+        },
+        "delivery": {
+          "state": "delivered",
+          "attempts": 1,
+          "confirmedChunks": 1,
+          "failureCode": null,
+          "payloadCleared": 1,
+          "planCleared": 1
+        },
+        "dedup": {
+          "requestId": "0d9bcc95-bb72-4adf-b19c-27faa942f363"
+        },
+        "observedTrace": {
+          "accepted": 1,
+          "providerSend": 1,
+          "providerSubmitted": 1,
+          "settled": 1,
+          "telegramDelivered": 1
+        }
+      },
+      {
+        "scenario": "pdf",
+        "request": {
+          "id": "35a42bff-885c-42c0-aed3-eda1bb4cbf2a",
+          "state": "completed",
+          "updateId": "591933748",
+          "createdAt": "2026-10-21T07:51:47.188Z",
+          "submittedAt": "2026-10-21T07:51:54.427Z",
+          "finishedAt": "2026-10-21T07:52:02.931Z"
+        },
+        "delivery": {
+          "state": "delivered",
+          "attempts": 1,
+          "confirmedChunks": 1,
+          "failureCode": null,
+          "payloadCleared": 1,
+          "planCleared": 1
+        },
+        "dedup": {
+          "requestId": "35a42bff-885c-42c0-aed3-eda1bb4cbf2a"
+        },
+        "observedTrace": {
+          "accepted": 1,
+          "providerSend": 1,
+          "providerSubmitted": 1,
+          "settled": 1,
+          "telegramDelivered": 1
+        }
+      }
+    ],
+    "counts": {
+      "inputs": 0,
+      "attachments": 0,
+      "generatedAttachmentFiles": 0,
+      "queued": 0,
+      "blocked": 0
+    },
+    "historicalRequests": 24,
+    "historicalUnchanged": true,
+    "integrity": "ok",
+    "foreignKeyErrors": 0,
+    "originalReceiptSha256": "2328aa4cd6a7e733bd7eda0bba210371bff54250e9bbefe21edbf168109a1b88"
+  },
+  "historicalRestart": {
+    "operation": "r7.controlled_restart",
+    "observedAt": "2026-10-21T05:10:15.756Z",
+    "gracefulExitCode": 0,
+    "leaseReleasedAfterShutdown": true,
+    "mappingsPreserved": true,
+    "activeSelectionPreserved": true,
+    "unknownConfirmationsPreserved": true,
+    "historicalRequests": 24,
+    "historicalRequestsUnchanged": true,
+    "queued": 0,
+    "blocked": 0
+  },
+  "historicalRestore": {
+    "operation": "r7.backup_restore_rehearsal",
+    "observedAt": "2026-10-21T05:08:10.704Z",
+    "sourceMigrations": 6,
+    "restoredMigrations": 7,
+    "applied": 1,
+    "integrity": "ok",
+    "foreignKeyErrors": 0,
+    "historicalRequests": 24,
+    "historicalSha256": "90fee565d0ac99edb0d8a3bf654529c2fe7e5e972566ef8206917f2c2deb1e6c",
+    "queued": 0,
+    "blocked": 0,
+    "productionDatabaseTouched": false
+  },
+  "historicalLiveR6": {
+    "source": "docs/verification/R6.md, Live evidence and remaining limits",
+    "newLiveRun": false,
+    "originalScriptExit": 1,
+    "reason": "strict plain-text expectation versus three Markdown-escaped underscores; exact offline hash check recorded in R6",
+    "observed": {
+      "before": "ready",
+      "submission": "submitted",
+      "outcome": "completed",
+      "sameCanonicalIdentity": true,
+      "inaccessibleRejected": true,
+      "afterRestart": "ready"
+    }
+  },
+  "limitations": [
+    "not every acceptance case was repeated live; automated witnesses are permitted by ACCEPTANCE section L",
+    "real concurrency and confirmed cancellation unsupported; conditional contracts exercised with fake capabilities",
+    "interactive real login not repeated in the fresh copy; historical native-profile live restart evidence and synthetic Chromium used",
+    "browser run preceded the tests/docs-only delta; runtime/browser input hashes are unchanged",
+    "metadata receipts are generated after tests; JSON/schema/matrix/witness completeness and formatting checked separately",
+    "acceptance wording and roadmap links were refined after standalone verification; all runtime/test/script/configuration inputs still match the verified copy",
+    "full raw offline logs remain private temporary artifacts; selected passing output and complete run summaries are retained here",
+    "publication and MVP tagging require separate explicit authorization"
+  ]
+}

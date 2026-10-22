@@ -145,7 +145,7 @@
   "patches": [
     {
       "path": "src/adapters/chatgpt-web/browser-worker.ts",
-      "sha256": "fdadb0217ea319e85095fec278e5f3b7f26ca9b07d13bde6dfd156754ec74335"
+      "sha256": "c38d6b4b1acb70f87327fca10dca244c7c704ea02772c1fba3759217b50bb343"
     },
     {
       "path": "launcher/electron/chatgpt-auth-session.cjs",
@@ -159,7 +159,7 @@
   "additions": [
     {
       "path": "src/adapters/chatgpt-web/gateway-session.ts",
-      "sha256": "39fd1f06dce1f19a0755ca02ad01a940fb77b8e14de74fe6d0bb900c64ba0101"
+      "sha256": "0ab8719ce3540332637eec86da56c5305d11593b15b71f487ebfd3ffd853b131"
     },
     {
       "path": "launcher/electron/chatgpt-auth-session.d.cts",

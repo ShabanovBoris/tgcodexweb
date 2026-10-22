@@ -58,6 +58,12 @@ export class RequestQueue {
     return result;
   }
 
+  clearPending(telegramUserId: string, conversationId?: string) {
+    const cleared = this.repository.clearPending(telegramUserId, this.now(), conversationId);
+    this.pump();
+    return cleared;
+  }
+
   // Diagnostics содержит только operational IDs, без input или raw executor errors.
   status() {
     return {

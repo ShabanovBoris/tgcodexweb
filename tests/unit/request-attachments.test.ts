@@ -42,6 +42,31 @@ function setup(provider = new FakeChatProvider()) {
   return { store, batches, attachments, service, provider };
 }
 
+test("clearing queued attachments deletes working bytes after durable removal and preserves UNKNOWN", async () => {
+  f.store.accept(request("block", "10"), { text: "prior", attachments: [] }, 3);
+  f.store.claim("block", later);
+  f.requests.transition("block", { state: "unknown", at: later });
+  const t = setup();
+  const prepared = await t.attachments.prepare(
+    "r1",
+    [{ sourceFileId: "source", filename: "a.ts" }],
+    async function* () {
+      yield new TextEncoder().encode("text");
+    },
+    at,
+  );
+  await t.service.start();
+  t.service.accept(request(), { attachments: prepared.attachments });
+  prepared.release();
+  expect(await readdir(join(f.root, "files"))).toHaveLength(1);
+  expect(await t.service.clearPending("123", "c1")).toBe(1);
+  expect(await readdir(join(f.root, "files"))).toEqual([]);
+  expect(f.requests.get("r1")?.failureCode).toBe("QUEUE_CLEARED");
+  expect(f.requests.get("block")?.state).toBe("unknown");
+  expect(t.provider.sendCalls).toEqual([]);
+  await t.service.shutdown();
+});
+
 test.each(["complete", "no_input", "no_acceptance", "neither"])(
   "interrupted upload %s respects ownership proof, UNKNOWN retention and never replays",
   async (mode) => {

@@ -109,3 +109,60 @@ account access, upload processing or ChatGPT completion behavior. `test:live` is
 operator opt-in; sending additionally requires `TGWEBGPT_LIVE_SEND=1`. The bounded live
 receipt is recorded separately from synthetic tests. Remaining acceptance checks and
 independent review of the final published R6 SHA are still required before R6 exit acceptance.
+
+## Requested image-output extension, 2026-10-21
+
+An operator-authorized inspection of an existing completed image-only answer showed a
+generated-image gallery and final assistant controls, with no Markdown/text answer root.
+The original tracker required nonempty text, so the gateway exhausted its observation
+deadline and retained UNKNOWN even though the image was already available.
+
+The existing `browser-worker.ts` patch now adds optional `outputPresent` evidence to the
+completion predicate. Its default behavior and all original Codex call sites remain
+unchanged. `gateway-session.ts` supplies that evidence only for settled generated previews
+inside its exact correlated assistant turn, while retaining final-action, no-Stop and
+stable-content checks. The new provider-owned `GeneratedImages.ts` reads only that gallery
+and downloads bounded same-origin asset bytes without redirects or exporting credentials.
+Known completion with an unavailable/oversized output reports a fixed image error rather
+than inventing generation ambiguity. Signed asset sources never enter the provider port.
+
+`UPSTREAM.json` updates only the final hashes for these two explicitly modified files;
+the upstream revision, original blob SHAs, other sources and dependency pins remain fixed.
+The provenance test is unchanged. Local browser fixtures cover image-only completion,
+preceding user controls, ordered multiple images and retrieval/redirect/limit errors.
+See [feature verification](../verification/generated-images-and-queue.md) for delivery
+and queue evidence and the distinction from a new live generation round trip.
+
+The 2026-10-22 review correction fixes an incomplete implementation of AC-M01: a browser
+preview load error (`complete=true`, zero natural dimensions) previously remained
+indistinguishable from loading and could exhaust the observer deadline into UNKNOWN.
+Loading, loaded and failed are now distinct; in-flight loads and source-less placeholders
+still wait. A settled failed preview passes through the existing correlated stable-final
+predicate and produces `GENERATED_IMAGE_UNAVAILABLE` without retrying the asset or prompt.
+The completion tracker itself, submission/correlation boundary and original upstream
+revision remain unchanged. Only the gateway addition's final provenance hash changes.
+
+## Pre-submit editor readiness and owned drafts, 2026-10-21
+
+For the newer markdown composer, a visible editable server-rendered element does not
+yet prove that its input handler is mounted. While it is empty, the gateway first waits
+within a 20-second action bound for its disabled submit placeholder to disappear. This
+prevents inserting text that subsequent hydration can discard. Legacy composers retain
+their previous preparation path; a pre-existing draft is still preserved.
+
+The gateway waits up to the existing 20-second action bound for exact prompt readback
+and an enabled, unique Send control. It then refreshes the submission baseline and
+rechecks generation, prompt and control state before its single activation attempt.
+Waiting for UI readiness never repeats insertion or Send.
+
+If preparation fails before activation, only an unchanged plain-text draft inserted by
+that operation into a previously empty composer is eligible for cleanup. The gateway
+reuses the worker's native editor cleanup, preserving non-editable pills. Pre-existing
+or changed text, requests with uploaded files, and all possibly activated operations
+keep their prior behavior. Cleanup failure cannot authorize submission or alter the
+established failure. No failed request is automatically replayed.
+
+The provider port, authentication, conversation identity, ambiguity boundary and pinned
+upstream revision/dependencies remain unchanged. Final hashes for the two modified fork
+files are refreshed without weakening provenance verification. See
+[composer preparation evidence](../verification/composer-preparation.md).

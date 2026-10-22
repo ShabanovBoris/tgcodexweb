@@ -112,6 +112,14 @@ export class RequestService {
   accept(request: Request, input: RequestInput) {
     return this.queue.accept(request, input);
   }
+  pending(telegramUserId: string) {
+    return this.dependencies.queueRepository.pending(telegramUserId);
+  }
+  async clearPending(telegramUserId: string, conversationId?: string): Promise<number> {
+    const cleared = this.queue.clearPending(telegramUserId, conversationId);
+    for (const item of cleared) await this.cleanup(item.request.id, item.attachments);
+    return cleared.length;
+  }
   waitForIdle(): Promise<void> {
     return this.queue.waitForIdle();
   }

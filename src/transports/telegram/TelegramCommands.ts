@@ -11,6 +11,8 @@ export const telegramHelp = [
   "/status — состояние",
   "/doctor — подробная диагностика без отправки запросов",
   "/stop — остановить текущую генерацию",
+  "/queue — ожидающие запросы во всех ваших чатах",
+  "/clearqueue [all] — убрать ожидающие в текущем чате или во всех ваших чатах",
   "/send — отправить собранный альбом одним запросом",
   "/discard — удалить черновик альбома",
   "Обычный текст, включая reply, отправляется в выбранный чат. Одиночные файлы отправляются с caption. Альбом ждёт /send; чат фиксируется первым файлом.",
@@ -29,6 +31,8 @@ const arities: Record<string, readonly number[]> = {
   status: [0],
   doctor: [0],
   stop: [0],
+  queue: [0],
+  clearqueue: [0, 1],
   send: [0],
   discard: [0],
 };
@@ -51,5 +55,6 @@ export function parseTelegramCommand(text: string, username: string): ParsedComm
   const args = match[3]?.trim().split(/\s+/).filter(Boolean) ?? [];
   if (!Object.hasOwn(arities, name) || !arities[name].includes(args.length))
     return { kind: "invalid" };
+  if (name === "clearqueue" && args.length === 1 && args[0] !== "all") return { kind: "invalid" };
   return { kind: "command", name, args };
 }
