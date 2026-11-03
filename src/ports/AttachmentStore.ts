@@ -6,6 +6,11 @@ export class AttachmentError extends Error {
       | "TOO_MANY_ATTACHMENTS"
       | "ATTACHMENT_UNAVAILABLE"
       | "ATTACHMENT_STORAGE_FAILED",
+    readonly reason?:
+      | "download_metadata"
+      | "download_body"
+      | "download_partial"
+      | "download_timeout",
   ) {
     super(code);
     this.name = "AttachmentError";

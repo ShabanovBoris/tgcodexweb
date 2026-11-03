@@ -88,6 +88,7 @@ function fixture(
     attachedText: async () => "",
     equivalent: () => true,
     insert: async () => {},
+    clear: async () => {},
     attach: async () => {},
     response: async () => {
       responseReads++;

@@ -410,3 +410,33 @@ For every mandatory criterion, provide one of:
 - deterministic manual reproduction steps + sanitized observed result.
 
 Statements such as "implemented" or "should work" are not acceptance evidence.
+
+---
+
+# M. Requested post-MVP additions (2026-10-21)
+
+## AC-M01 — Generated images and original files
+
+A correlated image-only assistant answer completes only after stable final evidence and
+the end of generation. Telegram receives each supported photo preview followed by its
+original downloadable file without re-encoding. Multiple images retain gallery order;
+unrelated/user images never become output. Image retrieval is bounded and signed URLs or
+credentials never enter results, Telegram messages or ordinary logs. A known completed
+generation with retrieval failure produces an explicit file error without another prompt.
+
+## AC-M02 — Durable image delivery
+
+Image bytes commit atomically with provider settlement. After a crash, delivery resumes
+at its persisted part cursor: a confirmed preview is not repeated to deliver its original.
+Only an ambiguously delivered part may repeat under AC-D05. Revocation, cancellation,
+expiry and the existing retry budget remain effective. Successful delivery or 24-hour
+expiry removes the operational image content. Existing text outbox rows remain supported.
+
+## AC-M03 — Scoped queue inspection and clearing
+
+`/queue` lists only the caller's pending IDs/aliases without prompt content. `/clearqueue`
+removes pending work only in the selected local mapping; `/clearqueue all` applies to all
+of the caller's mappings. Active/claimed work, foreign work and UNKNOWN remain unchanged.
+Removal is atomic, records `QUEUE_CLEARED`, preserves dedup and cleans accepted working
+input/files. Restart cannot requeue removed work. A duplicated clear command cannot clear
+new requests that arrived after its first execution. Invalid scopes have no removal effect.

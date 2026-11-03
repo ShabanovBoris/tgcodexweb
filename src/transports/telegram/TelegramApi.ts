@@ -1,5 +1,11 @@
 import { z } from "zod";
+import { setTimeout as delay } from "node:timers/promises";
 import { AttachmentError } from "../../ports/AttachmentStore";
+import {
+  type GeneratedImage,
+  generatedImageSchema,
+  canSendImagePreview,
+} from "../../domain/GeneratedImage";
 
 const integer = z.number().int().min(Number.MIN_SAFE_INTEGER).max(Number.MAX_SAFE_INTEGER);
 const sender = z.object({ id: integer.positive(), is_bot: z.boolean() });
@@ -32,13 +38,29 @@ export type TelegramSend = Readonly<{
   replyTo?: string;
 }>;
 export type TelegramIdentity = Readonly<{ id: number; username: string }>;
+export type TelegramImageSend = Readonly<{
+  chatId: string;
+  replyTo?: string;
+  image: GeneratedImage;
+  kind: "photo" | "document";
+  filename: string;
+}>;
 export type TelegramFetch = (url: string, input: RequestInit) => Promise<Response>;
-type TelegramMethod = "getMe" | "getUpdates" | "sendMessage" | "getFile";
+type TelegramMethod =
+  | "getMe"
+  | "getUpdates"
+  | "sendMessage"
+  | "getFile"
+  | "sendPhoto"
+  | "sendDocument";
+const isDelivery = (method: TelegramMethod) =>
+  method === "sendMessage" || method === "sendPhoto" || method === "sendDocument";
 
 export interface TelegramApi {
   getMe(signal?: AbortSignal): Promise<TelegramIdentity>;
   getUpdates(offset: number | undefined, signal: AbortSignal): Promise<TelegramUpdate[]>;
   sendMessage(input: TelegramSend, signal?: AbortSignal): Promise<void>;
+  sendImage?(input: TelegramImageSend, signal?: AbortSignal): Promise<void>;
   downloadFile(fileId: string, maxBytes: number, signal?: AbortSignal): AsyncIterable<Uint8Array>;
 }
 
@@ -55,6 +77,7 @@ export class TelegramError extends Error {
     // Only sendMessage supplies this separately from polling. Delivery may duplicate an ambiguous part.
     readonly deliveryRetryAfterMs?: number,
     readonly identityRetryAfterMs?: number,
+    readonly fileRetryAfterMs?: number,
   ) {
     super(code);
     this.name = "TelegramError";
@@ -69,8 +92,9 @@ function retryError(
   return new TelegramError(
     code,
     method === "getUpdates" ? minimum : undefined,
-    method === "sendMessage" ? minimum : undefined,
+    isDelivery(method) ? minimum : undefined,
     method === "getMe" ? minimum : undefined,
+    method === "getFile" ? minimum : undefined,
   );
 }
 
@@ -98,10 +122,30 @@ const transientNetworkCodes = new Set([
   "ConnectionRefused",
 ]);
 
+function transientNetworkError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    typeof error.code === "string" &&
+    transientNetworkCodes.has(error.code)
+  );
+}
+
+class FileReadError extends Error {
+  constructor(
+    readonly reason: "download_metadata" | "download_body",
+    readonly retryAfterMs?: number,
+  ) {
+    super("ATTACHMENT_UNAVAILABLE");
+  }
+}
+
 export class HttpTelegramApi implements TelegramApi {
   constructor(
     private readonly token: string,
     private readonly fetcher: TelegramFetch = fetch,
+    private readonly wait: (ms: number, signal: AbortSignal) => Promise<void> = (ms, signal) =>
+      delay(ms, undefined, { signal }),
   ) {
     if (!/^[0-9]+:[A-Za-z0-9_-]+$/.test(token)) throw new TelegramError("TELEGRAM_TOKEN_INVALID");
   }
@@ -152,9 +196,62 @@ export class HttpTelegramApi implements TelegramApi {
     signal?.throwIfAborted();
     // The hosted Bot API supports downloads up to 20 MB. Metadata is not proof of actual size.
     const limit = Math.min(maxBytes, 20_000_000);
+    const expiresAt = Date.now() + 30000;
     const deadline = AbortSignal.timeout(30000);
     const requestSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+    try {
+      for (let attempt = 0; ; attempt++) {
+        let yielded = false;
+        try {
+          for await (const chunk of this.readFile(fileId, limit, requestSignal)) {
+            yielded = true;
+            yield chunk;
+          }
+          return;
+        } catch (error) {
+          signal?.throwIfAborted();
+          if (error instanceof AttachmentError) throw error;
+          const failure = error instanceof FileReadError ? error : undefined;
+          const minimum = failure?.retryAfterMs;
+          const retryDelayMs = Math.max(1000 * 2 ** attempt, minimum ?? 0);
+          // Restarting after a yield would append duplicate bytes to the caller's partial file.
+          if (
+            yielded ||
+            attempt >= 2 ||
+            minimum === undefined ||
+            !Number.isSafeInteger(minimum) ||
+            minimum < 0 ||
+            requestSignal.aborted ||
+            Date.now() + retryDelayMs >= expiresAt
+          )
+            throw new AttachmentError(
+              "ATTACHMENT_UNAVAILABLE",
+              yielded
+                ? "download_partial"
+                : requestSignal.aborted
+                  ? "download_timeout"
+                  : failure?.reason,
+            );
+          await this.wait(retryDelayMs, requestSignal);
+        }
+      }
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason;
+      if (error instanceof AttachmentError) throw error;
+      throw new AttachmentError(
+        "ATTACHMENT_UNAVAILABLE",
+        requestSignal.aborted ? "download_timeout" : undefined,
+      );
+    }
+  }
+
+  private async *readFile(
+    fileId: string,
+    limit: number,
+    signal: AbortSignal,
+  ): AsyncIterable<Uint8Array> {
     let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    let reason: "download_metadata" | "download_body" = "download_metadata";
     try {
       const parsed = z
         .object({
@@ -162,8 +259,8 @@ export class HttpTelegramApi implements TelegramApi {
           file_size: integer.nonnegative().optional(),
           file_path: z.string().min(1),
         })
-        .safeParse(await this.call("getFile", { file_id: fileId }, requestSignal));
-      if (!parsed.success) throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
+        .safeParse(await this.call("getFile", { file_id: fileId }, signal));
+      if (!parsed.success) throw new AttachmentError("ATTACHMENT_UNAVAILABLE", reason);
       if (parsed.data.file_size !== undefined && parsed.data.file_size > limit)
         throw new AttachmentError("ATTACHMENT_TOO_LARGE");
       const path = parsed.data.file_path;
@@ -172,16 +269,21 @@ export class HttpTelegramApi implements TelegramApi {
         /[\\\p{Cc}]/u.test(path) ||
         segments.some((part) => !part || part === "." || part === "..")
       )
-        throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
+        throw new AttachmentError("ATTACHMENT_UNAVAILABLE", reason);
+      reason = "download_body";
       const response = await this.fetcher(
         `https://api.telegram.org/file/bot${this.token}/${segments.map(encodeURIComponent).join("/")}`,
-        { method: "GET", redirect: "error", signal: requestSignal },
+        { method: "GET", redirect: "error", signal },
       );
-      if (!response.ok || !response.body) throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
-      reader = response.body.getReader();
+      reader = response.body?.getReader();
+      if (!response.ok || !reader)
+        throw new FileReadError(
+          reason,
+          response.status >= 500 && response.status <= 599 ? 0 : undefined,
+        );
       let size = 0;
       for (;;) {
-        requestSignal.throwIfAborted();
+        signal.throwIfAborted();
         const next = await reader.read();
         if (next.done) break;
         size += next.value.byteLength;
@@ -191,26 +293,76 @@ export class HttpTelegramApi implements TelegramApi {
       if (parsed.data.file_size !== undefined && size !== parsed.data.file_size)
         throw new AttachmentError("ATTACHMENT_REJECTED");
     } catch (error) {
-      if (signal?.aborted) throw signal.reason;
-      if (error instanceof AttachmentError) throw error;
-      throw new AttachmentError("ATTACHMENT_UNAVAILABLE");
+      signal.throwIfAborted();
+      if (error instanceof AttachmentError || error instanceof FileReadError) throw error;
+      throw new FileReadError(
+        reason,
+        error instanceof TelegramError
+          ? error.fileRetryAfterMs
+          : transientNetworkError(error)
+            ? 0
+            : undefined,
+      );
     } finally {
       await reader?.cancel().catch(() => {});
       reader?.releaseLock();
     }
   }
 
+  async sendImage(input: TelegramImageSend, signal?: AbortSignal): Promise<void> {
+    signal?.throwIfAborted();
+    const parsed = generatedImageSchema.safeParse(input.image);
+    if (
+      !parsed.success ||
+      !/^[A-Za-z0-9_.-]{1,100}$/.test(input.filename) ||
+      !["photo", "document"].includes(input.kind) ||
+      (input.kind === "photo" && !canSendImagePreview(parsed.data))
+    )
+      throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
+    const image = parsed.data;
+    const form = new FormData();
+    form.set("chat_id", input.chatId);
+    if (input.replyTo)
+      form.set(
+        "reply_parameters",
+        JSON.stringify({ message_id: Number(input.replyTo), allow_sending_without_reply: true }),
+      );
+    form.set(
+      input.kind,
+      new Blob([Buffer.from(image.base64, "base64")], { type: image.mimeType }),
+      input.filename,
+    );
+    if (input.kind === "document") {
+      form.set("caption", "Скачать оригинал");
+      form.set("disable_content_type_detection", "true");
+    }
+    const result = await this.call(
+      input.kind === "photo" ? "sendPhoto" : "sendDocument",
+      form,
+      signal,
+    );
+    if (!z.object({ message_id: integer.positive() }).safeParse(result).success)
+      throw new TelegramError("TELEGRAM_DELIVERY_FAILED", undefined, 0);
+  }
+
   private async call(method: TelegramMethod, body: object, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
-    const deadline = AbortSignal.timeout(method === "getUpdates" ? 35000 : 15000);
+    const deadline = AbortSignal.timeout(
+      method === "getUpdates"
+        ? 35000
+        : method === "sendPhoto" || method === "sendDocument"
+          ? 60000
+          : 15000,
+    );
     const requestSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
-    const failureCode =
-      method === "sendMessage" ? "TELEGRAM_DELIVERY_FAILED" : "TELEGRAM_UNAVAILABLE";
+    const failureCode = isDelivery(method) ? "TELEGRAM_DELIVERY_FAILED" : "TELEGRAM_UNAVAILABLE";
     try {
       const response = await this.fetcher(`https://api.telegram.org/bot${this.token}/${method}`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        headers: body instanceof FormData ? undefined : { "content-type": "application/json" },
+        body: body instanceof FormData ? body : JSON.stringify(body),
+        // Bun 1.4.0 stalled live uploads on pooled connections; media POSTs use fresh connections.
+        ...(body instanceof FormData ? { keepalive: false } : {}),
         redirect: "error",
         signal: requestSignal,
       });
@@ -223,10 +375,9 @@ export class HttpTelegramApi implements TelegramApi {
       const parsed = envelope.safeParse(
         await response.json().catch((error: unknown) => {
           // A known 5xx stays transient even when its body cannot be read or decoded.
-          if (method !== "getFile" && serverFailure) return undefined;
+          if (serverFailure) return undefined;
           // An unreadable 429 cannot authorize a retry before an unknown retry_after.
-          if (method !== "getFile" && !response.ok && !serverFailure)
-            throw new TelegramError(failureCode);
+          if (!response.ok && !serverFailure) throw new TelegramError(failureCode);
           throw error;
         }),
       );
@@ -234,7 +385,7 @@ export class HttpTelegramApi implements TelegramApi {
         throw retryError(
           method,
           failureCode,
-          serverFailure || (method === "sendMessage" && response.ok) ? 0 : undefined,
+          serverFailure || (isDelivery(method) && response.ok) ? 0 : undefined,
         );
       const data = parsed.data;
       if (!data.ok || !response.ok) {
@@ -247,21 +398,21 @@ export class HttpTelegramApi implements TelegramApi {
         if (method !== "getFile") {
           if (response.status === 409 || data.error_code === 409)
             throw new TelegramError("TELEGRAM_CONFLICT");
-          if (!data.ok && response.status === 429 && data.error_code === 429) {
-            const parameters = floodControl.safeParse(data.parameters);
-            throw retryError(
-              method,
-              failureCode,
-              parameters.success ? parameters.data.retry_after * 1000 : undefined,
-            );
-          }
-          if (
-            !data.ok &&
-            serverFailure &&
-            (data.error_code === undefined || (data.error_code >= 500 && data.error_code <= 599))
-          )
-            throw retryError(method, failureCode, 0);
         }
+        if (!data.ok && response.status === 429 && data.error_code === 429) {
+          const parameters = floodControl.safeParse(data.parameters);
+          throw retryError(
+            method,
+            failureCode,
+            parameters.success ? parameters.data.retry_after * 1000 : undefined,
+          );
+        }
+        if (
+          !data.ok &&
+          serverFailure &&
+          (data.error_code === undefined || (data.error_code >= 500 && data.error_code <= 599))
+        )
+          throw retryError(method, failureCode, 0);
         // Only an explicit parser rejection proves that a rich message was not sent.
         if (
           method === "sendMessage" &&
@@ -278,13 +429,8 @@ export class HttpTelegramApi implements TelegramApi {
       if (signal?.aborted) throw signal.reason;
       if (error instanceof TelegramError) throw error;
       // Fetch errors can include the token-bearing URL; neither cause nor description escapes this adapter.
-      const transient =
-        deadline.aborted ||
-        (error instanceof Error &&
-          "code" in error &&
-          typeof error.code === "string" &&
-          transientNetworkCodes.has(error.code));
-      throw retryError(method, failureCode, transient || method === "sendMessage" ? 0 : undefined);
+      const transient = deadline.aborted || transientNetworkError(error);
+      throw retryError(method, failureCode, transient || isDelivery(method) ? 0 : undefined);
     }
   }
 }

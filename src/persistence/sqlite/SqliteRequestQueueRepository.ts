@@ -40,6 +40,43 @@ export class SqliteRequestQueueRepository implements RequestQueueRepository {
     this.conversations = new SqliteConversationRepository(database);
   }
 
+  pending(telegramUserId: string, conversationId?: string): readonly Request[] {
+    return repositoryOperation(() =>
+      this.database.transaction(() =>
+        this.database
+          .query<{ id: string }, [string, string | null, string | null]>(
+            `SELECT r.id FROM requests r JOIN conversations c ON c.id=r.conversation_id
+         LEFT JOIN request_inputs i ON i.request_id=r.id
+         WHERE c.telegram_user_id=? AND (? IS NULL OR c.id=?)
+         AND r.state IN ('created','queued')
+         AND r.started_at IS NULL AND r.submitted_at IS NULL AND r.provider_request_id IS NULL
+         ORDER BY i.sequence,r.created_at,r.id`,
+          )
+          .all(telegramUserId, conversationId ?? null, conversationId ?? null)
+          .map((row) => this.requests.get(row.id) as Request),
+      )(),
+    );
+  }
+
+  clearPending(telegramUserId: string, at: string, conversationId?: string) {
+    return repositoryOperation(() =>
+      this.database
+        .transaction(() =>
+          this.pending(telegramUserId, conversationId).map((request) => {
+            const attachments = this.requests.listAttachments(request.id);
+            // Local removal is a proven pre-submit failure, not evidence of remote cancellation.
+            const cleared = this.requests.transition(request.id, {
+              state: "failed",
+              at,
+              failureCode: "QUEUE_CLEARED",
+            });
+            return { request: cleared, attachments };
+          }),
+        )
+        .immediate(),
+    );
+  }
+
   // Durable marker проверяется первым: duplicate не меняет ни mapping, ни исходный payload даже при полной очереди.
   accept(
     requestInput: Request,

@@ -1,7 +1,9 @@
 import type { Request } from "../../domain/Request";
+import { canSendImagePreview } from "../../domain/GeneratedImage";
 import {
   maxDeliveryAttempts,
   type ResultDeliveryRepository,
+  type DeliveryChunk,
 } from "../../ports/ResultDeliveryRepository";
 import type { RequestResult } from "../../ports/RequestResultRepository";
 import { type TelegramApi, TelegramError } from "./TelegramApi";
@@ -12,6 +14,14 @@ const retryDelaysMs = [1000, 2000, 4000, 8000, 16000] as const;
 const maxRetryDelayMs = 60000;
 export function requestResultText(result: RequestResult): string {
   const request = result.request;
+  if (result.message?.imageError)
+    return [
+      result.message.text,
+      `Изображение создано в ChatGPT, но файл не получен: ${result.message.imageError}.`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  if (result.message?.images?.length) return result.message.text;
   return (
     result.message?.text ||
     (request.state === "completed"
@@ -20,11 +30,53 @@ export function requestResultText(result: RequestResult): string {
   );
 }
 
+export function requestResultPlan(result: RequestResult): readonly DeliveryChunk[] {
+  const text = requestResultText(result);
+  const chunks: DeliveryChunk[] = text ? [...renderTelegram(text)] : [];
+  for (const [index, image] of (result.message?.images ?? []).entries()) {
+    if (canSendImagePreview(image)) chunks.push({ kind: "photo", image: index });
+    chunks.push({ kind: "document", image: index });
+  }
+  return chunks;
+}
+
+export async function sendResultPart(
+  api: Pick<TelegramApi, "sendMessage" | "sendImage">,
+  chunk: DeliveryChunk,
+  result: RequestResult,
+  destination: () => Readonly<{ chatId: string; replyTo?: string }>,
+  signal?: AbortSignal,
+): Promise<void> {
+  if ("kind" in chunk) {
+    const image = result.message?.images?.[chunk.image];
+    if (!image || !api.sendImage) throw new TelegramError("TELEGRAM_DELIVERY_FAILED");
+    const extension = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp" }[
+      image.mimeType
+    ];
+    await api.sendImage(
+      {
+        ...destination(),
+        image,
+        kind: chunk.kind,
+        filename: `original-${chunk.image + 1}.${extension}`,
+      },
+      signal,
+    );
+    return;
+  }
+  try {
+    await api.sendMessage({ ...destination(), text: chunk.html, parseMode: "HTML" }, signal);
+  } catch (error) {
+    if (!(error instanceof TelegramError) || error.code !== "TELEGRAM_PARSE_ERROR") throw error;
+    await api.sendMessage({ ...destination(), text: chunk.plain }, signal);
+  }
+}
+
 export class TelegramResultDelivery {
   constructor(
     private readonly dependencies: Readonly<{
       repository: ResultDeliveryRepository;
-      api: Pick<TelegramApi, "sendMessage">;
+      api: Pick<TelegramApi, "sendMessage" | "sendImage">;
       destination: (request: Request) => Readonly<{ chatId: string; replyTo?: string }> | null;
       now: () => string;
       signal?: AbortSignal;
@@ -37,7 +89,7 @@ export class TelegramResultDelivery {
     const attempt = repository.start(id, now());
     if (!attempt) return false;
     try {
-      const chunks = attempt.plan ?? renderTelegram(requestResultText(attempt.result));
+      const chunks = attempt.plan ?? requestResultPlan(attempt.result);
       if (!attempt.plan) repository.savePlan(id, attempt.attempts, chunks);
       const destination = () => {
         this.dependencies.signal?.throwIfAborted();
@@ -51,17 +103,13 @@ export class TelegramResultDelivery {
         return target;
       };
       for (let index = attempt.nextChunk; index < chunks.length; index++) {
-        const chunk = chunks[index];
-        try {
-          await api.sendMessage(
-            { ...destination(), text: chunk.html, parseMode: "HTML" },
-            this.dependencies.signal,
-          );
-        } catch (error) {
-          if (!(error instanceof TelegramError) || error.code !== "TELEGRAM_PARSE_ERROR")
-            throw error;
-          await api.sendMessage({ ...destination(), text: chunk.plain }, this.dependencies.signal);
-        }
+        await sendResultPart(
+          api,
+          chunks[index],
+          attempt.result,
+          destination,
+          this.dependencies.signal,
+        );
         repository.acknowledge(id, attempt.attempts, index + 1);
       }
       repository.complete(id, attempt.attempts, now());

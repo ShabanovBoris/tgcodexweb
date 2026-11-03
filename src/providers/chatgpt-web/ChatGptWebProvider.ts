@@ -168,7 +168,7 @@ export class ChatGptWebProvider implements ChatProvider {
   }): Promise<ProviderOutcome> {
     if (!this.matches(input.submission)) return this.unknown(input.submission);
     while (!input.signal.aborted) {
-      const outcome = await this.inspectRequest(input.submission);
+      const outcome = await this.observeRequest(input.submission, input.signal);
       if (outcome.state !== "running")
         return outcome.state === "not_submitted" ? this.unknown(input.submission) : outcome;
       await gatewayDelay(100, input.signal);
@@ -177,19 +177,31 @@ export class ChatGptWebProvider implements ChatProvider {
   }
 
   async inspectRequest(reference: ProviderRequestReference): Promise<ProviderObservation> {
+    return this.observeRequest(reference);
+  }
+  private async observeRequest(
+    reference: ProviderRequestReference,
+    signal?: AbortSignal,
+  ): Promise<ProviderObservation> {
     const current = this.current;
     if (!current?.providerRequestId || !this.matches(reference)) return this.unknown(reference);
     try {
       const observed = await this.session.observe(
         reference.clientRequestId,
         current.providerRequestId,
+        signal,
       );
       if (observed.state === "unknown") return this.unknown(reference);
       if (observed.state === "running") return { ...current, state: "running" };
       return {
         ...current,
         state: "completed",
-        message: { text: observed.text, id: observed.messageId },
+        message: {
+          text: observed.text,
+          id: observed.messageId,
+          ...(observed.images ? { images: observed.images } : {}),
+          ...(observed.imageError ? { imageError: observed.imageError } : {}),
+        },
       };
     } catch {
       return this.unknown(reference);

@@ -1353,10 +1353,11 @@ export function chatGptTurnIsComplete(state: {
   currentText: string;
   currentHtml?: string;
   completionActionVisible: boolean;
+  outputPresent?: boolean;
 }): boolean {
   return state.responsePresent
     && !state.running
-    && state.currentText.length > 0
+    && (state.currentText.length > 0 || state.outputPresent === true)
     && state.completionActionVisible;
 }
 
@@ -2215,10 +2216,27 @@ export class ChatGptBrowserWorker {
       headed: !options.headless, autoApproveToolCalls: false, useSavedChats: true,
     });
     return new GatewayBrowserSession({ ...options, executablePath: worker.config.chromeExecutablePath }, {
-      composer: page => worker.activeComposer(page),
+      composer: async page => {
+        const composer = await worker.activeComposer(page);
+        if (await composer.getAttribute("data-composer-markdown") !== null
+          && (await composer.textContent()) === "") {
+          // The server-rendered markdown editor accepts DOM edits before its input handler mounts.
+          // Its disabled submit placeholder must disappear before inserting text, or hydration loses it.
+          await composer.locator("xpath=ancestor::form[1]")
+            .locator(`:is(${CHATGPT_SEND_BUTTON_SELECTOR}):disabled`)
+            .waitFor({ state: "hidden", timeout: 20_000 });
+        }
+        return worker.activeComposer(page);
+      },
       baseline: (page, text) => worker.captureSubmissionBaseline(page, text),
       state: (page, baseline) => worker.submissionDomState(page, baseline.domCache),
       insert: (page, text) => worker.insertPromptText(page, text),
+      clear: async page => {
+        const composer = await worker.activeComposer(page);
+        // Non-editable pills can belong to an earlier manual selection; preserve them.
+        if (await composer.locator('[contenteditable="false"]').count() === 0)
+          await worker.clearChatGptComposerState(page);
+      },
       attachedText: page => worker.attachedPromptText(page, undefined, true),
       equivalent: (expected, observed) => worker.promptTextEquivalent(expected, observed),
       attach: (page, files) => worker.attachFilePayloads(page, files),

@@ -1,6 +1,8 @@
 import type { RequestResult } from "./RequestResultRepository";
 
-export type DeliveryChunk = Readonly<{ html: string; plain: string }>;
+export type DeliveryChunk =
+  | Readonly<{ html: string; plain: string }>
+  | Readonly<{ kind: "photo" | "document"; image: number }>;
 export type DeliveryMetadata = Readonly<{
   requestId: string;
   state: "pending" | "delivered" | "failed" | "expired";

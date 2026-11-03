@@ -12,16 +12,32 @@ import {
 import type { RequestResult, RequestResultRepository } from "../../ports/RequestResultRepository";
 import { DatabaseError } from "./Database";
 import { repositoryOperation } from "./repositoryOperation";
+import { assistantMessageSchema } from "../../ports/ChatProvider";
+import { maxGeneratedImages } from "../../domain/GeneratedImage";
 import { SqliteRequestRepository } from "./SqliteRequestRepository";
 
 const payloadSchema = z.strictObject({
-  message: z.strictObject({ text: z.string(), id: z.string().min(1).optional() }).optional(),
+  message: assistantMessageSchema.optional(),
   errorCode: z
     .string()
     .regex(/^[A-Z][A-Z0-9_]*$/)
     .optional(),
 });
-const planSchema = z.array(z.strictObject({ html: z.string(), plain: z.string() })).min(1);
+const planSchema = z
+  .array(
+    z.union([
+      z.strictObject({ html: z.string(), plain: z.string() }),
+      z.strictObject({
+        kind: z.enum(["photo", "document"]),
+        image: z
+          .number()
+          .int()
+          .min(0)
+          .max(maxGeneratedImages - 1),
+      }),
+    ]),
+  )
+  .min(1);
 function canonicalTime(at: string): string {
   return new Date(z.iso.datetime().parse(at)).toISOString();
 }

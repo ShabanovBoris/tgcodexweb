@@ -333,6 +333,10 @@ subject to separate operator authorization.
 
 # Post-MVP backlog
 
+The 2026-10-21 requested additions implement generated image previews/original files and
+owner-scoped `/queue` / `/clearqueue [all]`. Their current evidence and limits are recorded
+in [generated images and queue commands](docs/verification/generated-images-and-queue.md).
+
 These items must not block MVP and must not be implemented opportunistically unless explicitly requested:
 
 - streaming edits in Telegram;
@@ -342,7 +346,7 @@ These items must not block MVP and must not be implemented opportunistically unl
 - multiple browser profiles/accounts;
 - scheduled tasks;
 - voice input;
-- richer generated image/artifact handling;
+- other generated artifact handling;
 - automatic agent orchestration;
 - remote deployment hardening.
 

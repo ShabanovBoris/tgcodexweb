@@ -14,6 +14,11 @@ import {
   type ChatGptSubmissionDomState,
 } from "./browser-worker";
 import { ChatGptMarkdownBuffer } from "./markdown";
+import {
+  observeGeneratedImages,
+  downloadGeneratedImages,
+  type GeneratedImageResult,
+} from "../../../../GeneratedImages";
 
 // Local fork API. No native page, auth payload, or exception leaves the gateway provider module.
 export type GatewaySessionOptions = {
@@ -47,13 +52,14 @@ export type GatewaySendReceipt =
   | { state: "unknown"; reason?: (typeof gatewaySendUnknownReasons)[number] };
 export type GatewayObservation =
   | { state: "running" }
-  | { state: "completed"; text: string; messageId: string }
+  | ({ state: "completed"; text: string; messageId: string } & GeneratedImageResult)
   | { state: "unknown" };
 export type GatewayPrimitives = {
   composer(page: Page): Promise<Locator>;
   baseline(page: Page, text?: string): Promise<ChatGptSubmissionBaseline>;
   state(page: Page, baseline: ChatGptSubmissionBaseline): Promise<ChatGptSubmissionDomState>;
   insert(page: Page, text: string): Promise<void>;
+  clear(page: Page): Promise<void>;
   attachedText(page: Page): Promise<string>;
   equivalent(expected: string, observed: string): boolean;
   attach(page: Page, files: GatewayFile[]): Promise<void>;
@@ -283,28 +289,43 @@ export class GatewayBrowserSession {
     let page: Page | undefined;
     let activated = false;
     let uploading = false;
+    let ownsPlainDraft = false;
     try {
       page = await this.surface(input.remoteId);
       if ((await this.primitives.attachedText(page)) !== "") throw new GatewayBrowserError("busy");
       let baseline = await this.primitives.baseline(page);
       const before = await this.primitives.state(page, baseline);
       if (before.visibleStopButtonCount !== 0) throw new GatewayBrowserError("busy");
+      ownsPlainDraft = input.text.length > 0 && input.files.length === 0;
       if (input.text) await this.primitives.insert(page, input.text);
       uploading = true;
       await this.primitives.attach(page, input.files);
       uploading = false;
-      if (!this.primitives.equivalent(input.text, await this.primitives.attachedText(page)))
-        throw new GatewayBrowserError("unavailable");
-      // Baseline after upload/hydration prevents remounted history acknowledging Send.
-      baseline = await this.primitives.baseline(page, input.text);
-      if ((await this.primitives.state(page, baseline)).visibleStopButtonCount !== 0)
-        throw new GatewayBrowserError("busy");
       const composer = await this.primitives.composer(page);
       const send = composer
         .locator("xpath=ancestor::form[1]")
         .locator(CHATGPT_SEND_BUTTON_SELECTOR);
+      const readyDeadline = Date.now() + 20_000;
       await send.waitFor({ state: "visible", timeout: 20_000 });
-      if ((await send.count()) !== 1 || !(await send.isEnabled()))
+      for (;;) {
+        if ((await send.count()) !== 1) throw new GatewayBrowserError("unavailable");
+        if (
+          this.primitives.equivalent(input.text, await this.primitives.attachedText(page)) &&
+          (await send.isEnabled())
+        )
+          break;
+        if (Date.now() >= readyDeadline) throw new GatewayBrowserError("unavailable");
+        await gatewayDelay(50);
+      }
+      // Capture history after editor hydration; waiting must not acknowledge another user's turn.
+      baseline = await this.primitives.baseline(page, input.text);
+      if ((await this.primitives.state(page, baseline)).visibleStopButtonCount !== 0)
+        throw new GatewayBrowserError("busy");
+      if (
+        !this.primitives.equivalent(input.text, await this.primitives.attachedText(page)) ||
+        (await send.count()) !== 1 ||
+        !(await send.isEnabled())
+      )
         throw new GatewayBrowserError("unavailable");
       const operation: Operation = {
         id: input.id,
@@ -356,11 +377,22 @@ export class GatewayBrowserSession {
       };
     } finally {
       // An ambiguous Send keeps its owned page; closing it would not prove remote termination.
-      if (!activated) await page?.close();
+      if (!activated && page) {
+        try {
+          if (
+            ownsPlainDraft &&
+            this.primitives.equivalent(input.text, await this.primitives.attachedText(page))
+          )
+            await this.primitives.clear(page);
+        } catch {
+          // Cleanup cannot change a proven pre-Send failure or authorize another submission.
+        }
+        await page.close();
+      }
     }
   }
 
-  async observe(id: string, turnId: string): Promise<GatewayObservation> {
+  async observe(id: string, turnId: string, signal?: AbortSignal): Promise<GatewayObservation> {
     const operation = this.operation;
     if (!operation || operation.id !== id || operation.turnId !== turnId)
       return { state: "unknown" };
@@ -389,20 +421,35 @@ export class GatewayBrowserSession {
       if ((await withChatGptBrowserObservationTimeout(locator.count())) !== 1)
         return { state: "unknown" };
       const snapshot = await this.primitives.response(locator);
+      const generated = await observeGeneratedImages(locator);
       operation.markdown.observe(snapshot.markdownSegments);
       if (
         !operation.tracker.update({
           responsePresent: snapshot.responsePresent,
-          running: state.visibleStopButtonCount > 0,
+          running:
+            state.visibleStopButtonCount > 0 ||
+            (generated.present && generated.status === "loading"),
           currentText: snapshot.visibleText,
-          currentHtml: snapshot.fullHtml,
-          completionActionVisible: snapshot.completionActionVisible,
+          currentHtml: snapshot.fullHtml + generated.signature,
+          completionActionVisible: generated.present
+            ? generated.completionActionVisible
+            : snapshot.completionActionVisible,
+          outputPresent: generated.present && generated.status !== "loading",
         })
       )
         return { state: "running" };
       const final = operation.markdown.finish();
       if (!final.markdown && snapshot.visibleText) return { state: "unknown" };
-      operation.outcome = { state: "completed", text: final.markdown, messageId: responseId };
+      const images = generated.present
+        ? await downloadGeneratedImages(locator, generated, signal)
+        : {};
+      if (signal?.aborted) return { state: "unknown" };
+      operation.outcome = {
+        state: "completed",
+        text: final.markdown,
+        messageId: responseId,
+        ...images,
+      };
       operation.baseline = undefined;
       operation.page = undefined;
       await page.close();

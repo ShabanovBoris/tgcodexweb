@@ -1,4 +1,5 @@
 import type { Request } from "../domain/Request";
+import type { Attachment } from "../domain/Attachment";
 import type { RequestInput } from "../domain/RequestInput";
 import type { ProcessedUpdate } from "./UpdateDedupRepository";
 
@@ -26,6 +27,12 @@ export type QueueSnapshot = Readonly<{
 // Compound port нужен для одной atomic acceptance: отдельные repository calls не связывают marker с payload.
 // Snapshot согласует payload/lifecycle; claim проверяет FIFO и сохраняет начало работы до внешнего effect.
 export interface RequestQueueRepository {
+  pending(telegramUserId: string, conversationId?: string): readonly Request[];
+  clearPending(
+    telegramUserId: string,
+    at: string,
+    conversationId?: string,
+  ): readonly Readonly<{ request: Request; attachments: readonly Attachment[] }>[];
   accept(
     request: Request,
     input: RequestInput,

@@ -412,6 +412,14 @@ Admission checks duplicates before capacity. `QUEUE_FULL` does not create a requ
 payload or dedup marker. Shutdown closes admission and dispatch, waits for active
 callbacks, and preserves queued input for the next runtime; it does not cancel remote work.
 
+The 2026-10-21 queue commands use owner-scoped repository operations. `/queue` exposes
+pending metadata only. `clearPending` takes an IMMEDIATE transaction, selects only owned
+created/queued work with no processing/submission fields and transitions it to
+`failed / QUEUE_CLEARED` using the existing retention reducer. Dedup/acceptance history
+remains. The service cleans unreferenced input files after commit, and the queue refreshes
+dispatch. Claimed work and UNKNOWN are never removed or unblocked by this path. Clearing
+the current mapping does not clear another alias, even if they share a canonical key.
+
 ---
 
 ## 12. Persistence
@@ -713,6 +721,32 @@ provider construction. `bootstrap` retains the one-shot maintenance.
 
 ---
 
+### Optional macOS process supervision
+
+The operator-approved post-MVP macOS service runs the normal CLI in one Bun process
+under a user LaunchAgent. Preparation copies the pinned runtime into ignored private
+storage and generates a plist containing paths, never credential values. Browser
+binaries are separately installed at a persistent path; the same `.env`, database and
+dedicated profile remain authoritative.
+
+The CLI retains its ordinary 0/1 exit contract. Its optional service failure callback
+exposes only whether a classified Telegram identity/poll read failed with an explicit
+zero wait hint. The service requests launchd restart with exit 75 only for those
+failures. A permanent/unclassified failure, positive flood minimum, configuration error,
+token/conflict error or operator stop deliberately ends supervision with exit 0; its
+failure remains in `cli.failed` and the private lifecycle journal. This prevents a new
+process from truncating a server-requested wait after the in-process budget is exhausted.
+Process launches are throttled to one per 30 seconds; signal/crash recovery remains
+subject to launchd. Graceful shutdown is joined through the existing CLI before exit.
+
+This restarts processes, never provider requests. Normal startup reconciliation, canonical
+serialization, ingress deduplication and UNKNOWN blocks are unchanged. SIGKILL/power loss
+cannot write a final receipt; a start without a matching stop establishes an unclean exit,
+not its exact cause. `launchctl` can supply additional OS diagnostics. See the
+[service procedure](docs/operations/macos-service.md).
+
+---
+
 ## 15. Markdown rendering
 
 Introduce an explicit renderer:
@@ -783,6 +817,16 @@ configured limit and 20,000,000 bytes. Declared size never replaces streamed siz
 The transport preserves original document name/MIME from the incoming message;
 `getFile` does not guarantee these. Errors escape as fixed codes without token URLs.
 
+Read-only file retrieval makes at most three attempts for recognized transient network/5xx
+failures and metadata 429 responses with an explicit valid minimum, within the original
+30-second overall download deadline. Backoff is 1/2 seconds or the larger minimum; a
+minimum beyond the remaining deadline is never shortened. A retry is permitted only
+before any bytes have been yielded to storage. Partial streams, permanent/malformed
+responses, path/size validation and unclassified/TLS errors fail without replay. Readers
+are cancelled and released before another attempt. Neither an update nor a provider
+submission is retried by this mechanism. Final attachment failures log only the update,
+caller, fixed code and optional fixed download stage, without file IDs/content or URLs.
+
 Forward migration `0005_attachment_batches.sql` stores unaccepted album drafts and ordered
 file items. Telegram does not provide an album completion marker; the approved `/send`
 boundary is explicit. `attachmentBatchId` is an acceptance-only RequestInput field. In the
@@ -800,6 +844,34 @@ files. Any surviving attachment row (including legacy/unclassified ownership), a
 item or an in-process preparation lease protects a file from TTL deletion. Thus queued
 input cannot expire; crash/failed-cleanup orphans are collected after the configured TTL.
 Fake CLI uses a separate `fake/` storage subdirectory as well as its separate database.
+
+### Generated image output (2026-10-21)
+
+The real provider inspects only generated-image galleries inside the exact correlated
+assistant turn. User uploads, avatars and search images are excluded. Final controls must
+follow the gallery; the user's earlier footer does not prove completion. The completion
+tracker accepts explicit non-text output, still requires no running generation and a
+stable signature, and waits for in-flight preview loads and source-less placeholders.
+Preview state distinguishes loading, loaded and failed. Once every preview load has
+settled, a failed preview can complete only with the same correlated final controls and
+no Stop; it reports `GENERATED_IMAGE_UNAVAILABLE` without another asset fetch. A broken
+preview is not evidence of continued generation and must not reserve capacity as UNKNOWN.
+
+Only the observed same-origin `/backend-api/estuary/content` source is fetched, with
+browser-owned credentials and no redirects. Reads are time/size/count bounded; PNG/JPEG/WebP
+MIME and signatures are validated. At most four files and 20,000,000 decoded bytes total
+cross the provider port, as validated base64 values plus dimensions. Signed URLs never
+cross it. A retrieval/limit error after proven completion remains a completed provider
+outcome with `GENERATED_IMAGE_UNAVAILABLE`/`GENERATED_IMAGE_LIMIT`, not a replayable failure.
+
+The existing JSON outbox stores image bytes atomically with settlement. No production
+migration is rewritten or added: old text payloads/plans remain readable. Delivery plans
+add indexed `photo`/`document` parts alongside the existing text parts. Each part has its
+own persisted cursor acknowledgement. The preview and original share exact provider bytes;
+Telegram may compress its photo, while the original is a multipart document labelled
+`Скачать оригинал`. Formats or dimensions unsupported as photos receive only the original.
+Delivery retries never call the provider. All image bytes disappear from operational
+payload/plan on delivery or the existing 24-hour expiry, and never enter ordinary logs.
 
 ---
 

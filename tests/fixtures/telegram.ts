@@ -10,6 +10,7 @@ import type {
   TelegramApi,
   TelegramSend,
   TelegramUpdate,
+  TelegramImageSend,
 } from "../../src/transports/telegram/TelegramApi";
 import { TelegramBot } from "../../src/transports/telegram/TelegramBot";
 import { TelegramFileCollector } from "../../src/transports/telegram/TelegramFileCollector";
@@ -17,6 +18,10 @@ import { later, type QueueFixture } from "./queue";
 
 export class FakeTelegramApi implements TelegramApi {
   readonly sent: TelegramSend[] = [];
+  readonly images: TelegramImageSend[] = [];
+  async sendImage(input: TelegramImageSend): Promise<void> {
+    this.images.push(input);
+  }
   sendFailure: ((message: TelegramSend) => unknown) | undefined;
   async getMe() {
     return { id: 777, username: "r4_bot" };
